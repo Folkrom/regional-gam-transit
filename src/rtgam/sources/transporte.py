@@ -117,11 +117,20 @@ def fetch_stations(
             cache_path.parent.mkdir(parents=True, exist_ok=True)
             cache_path.write_text(json.dumps(payload), encoding="utf-8")
             return stations
+        except requests.HTTPError as error:
+            # Un 4xx que no sea 429 es un bug de nuestra consulta, no una falla
+            # transitoria. Reintentarlo tres veces solo castiga a un servidor
+            # gratuito y retrasa el error real quince segundos.
+            status = error.response.status_code if error.response is not None else None
+            if status is not None and 400 <= status < 500 and status != 429:
+                raise
+            last_error = error
         except (requests.RequestException, ValueError) as error:
             last_error = error
-            if attempt < OVERPASS_RETRIES - 1:
-                backoff = 5 * (2**attempt)
-                print(f"Overpass fallo ({error}); reintento en {backoff}s")
-                time.sleep(backoff)
+
+        if attempt < OVERPASS_RETRIES - 1:
+            backoff = 5 * (2**attempt)
+            print(f"Overpass fallo ({last_error}); reintento en {backoff}s")
+            time.sleep(backoff)
 
     raise RuntimeError(f"Overpass fallo tras {OVERPASS_RETRIES} intentos") from last_error
