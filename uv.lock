@@ -893,6 +893,7 @@ name = "rtgam"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "branca" },
     { name = "folium" },
     { name = "h3" },
     { name = "numpy" },
@@ -912,6 +913,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "branca", specifier = ">=0.8.2" },
     { name = "folium", specifier = ">=0.17" },
     { name = "h3", specifier = ">=4.0" },
     { name = "numpy", specifier = ">=1.26" },
