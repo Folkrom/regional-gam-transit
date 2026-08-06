@@ -26,7 +26,13 @@ Las fuentes 2 a 4 del spec (DENUE, OSM, censo AGEB) **no** están en este plan y
 - **Propiedad única de columnas:** cada módulo de `src/rtgam/sources/` es dueño exclusivo de sus columnas. Dos fuentes nunca escriben la misma columna.
 - **Ninguna prueba toca la red.** Todas usan fixtures sintéticos.
 - **Commits sin trailer de coautoría.** No agregar `Co-Authored-By`.
-- **Idioma:** código, nombres de función y docstrings en inglés; mensajes de commit y salida al usuario en español.
+- **Idioma:** identificadores en inglés (nombres de módulo, función, variable,
+  constante y prueba). **Docstrings y comentarios en español**, igual que los
+  mensajes de commit y la salida de los scripts. Es deliberado: el dueño del
+  proyecto es hispanohablante y está usando esto para aprender Python
+  geoespacial, así que la prosa que explica un concepto nuevo (H3, kernel de
+  decaimiento, log1p) vale más en su idioma. El código de todas las tareas de
+  este plan sigue ese patrón.
 
 ## Desviaciones respecto al spec
 
@@ -138,13 +144,18 @@ El archivo ya existe con la entrada `.superpowers/`; **conservarla** al escribir
 __pycache__/
 *.pyc
 .pytest_cache/
-data/
+data/*
 !data/.gitkeep
 .streamlit/
 .superpowers/
 ```
 
-`data/` se ignora entero: son descargas y derivados, reproducibles desde los scripts.
+`data/*` y no `data/`: con la barra final git excluye el directorio y deja de
+recursar dentro, asi que la negacion `!data/.gitkeep` nunca se evalua y el
+archivo solo entra con `git add -f`. Con el glob la negacion si funciona.
+
+El contenido de `data/` se ignora entero: son descargas y derivados,
+reproducibles desde los scripts.
 `.superpowers/` es scratch del proceso de ejecución, no del proyecto.
 
 - [ ] **Step 5: Crear los archivos del paquete y las carpetas de datos**
@@ -212,6 +223,18 @@ def test_haversine_known_distance():
     """Un grado de latitud son ~111.2 km en cualquier meridiano."""
     d = haversine_m(19.0, -99.1, 20.0, -99.1)
     assert d == pytest.approx(111_195, rel=0.001)
+
+
+def test_haversine_applies_latitude_cosine():
+    """Un grado de longitud se encoge con el coseno de la latitud.
+
+    Sin esta prueba, una haversine a la que le falte el termino
+    cos(lat1)*cos(lat2) pasa todas las demas: las otras comparan puntos con
+    la misma longitud, donde ese termino se multiplica por sin(0) y desaparece.
+    A lat 19.5 la diferencia es 104,817 m contra 111,195 m — 6%.
+    """
+    d = haversine_m(19.5, -99.5, 19.5, -98.5)
+    assert d == pytest.approx(104_817, rel=0.001)
 
 
 def test_haversine_broadcasts():
@@ -294,8 +317,12 @@ def hexes_for_polygon(polygon, resolution: int = H3_RESOLUTION) -> set[str]:
 
     `polygon` es cualquier objeto con __geo_interface__ (shapely sirve).
     h3.geo_to_cells respeta la convencion GeoJSON de lon/lat.
+
+    El set() no es decorativo: h3 4.5.0 devuelve una list, y el contrato de
+    esta funcion es un set porque quien la consume espera unicidad garantizada
+    y operadores de conjunto.
     """
-    return h3.geo_to_cells(polygon, resolution)
+    return set(h3.geo_to_cells(polygon, resolution))
 
 
 def hex_centroids(hexes: Iterable[str]) -> pd.DataFrame:
@@ -314,7 +341,7 @@ def hex_centroids(hexes: Iterable[str]) -> pd.DataFrame:
 uv run pytest tests/test_geo.py -v
 ```
 
-Esperado: PASS, 5 pruebas.
+Esperado: PASS, 6 pruebas.
 
 - [ ] **Step 5: Commit**
 
@@ -472,7 +499,7 @@ def accumulate_decay(
 uv run pytest tests/test_geo.py -v
 ```
 
-Esperado: PASS, 12 pruebas (las 5 de la Tarea 2 más 7 nuevas).
+Esperado: PASS, 13 pruebas (las 6 de la Tarea 2 más 7 nuevas).
 
 - [ ] **Step 5: Commit**
 
@@ -804,7 +831,7 @@ Esperado: PASS, 7 pruebas.
 uv run pytest -v
 ```
 
-Esperado: PASS, 29 pruebas (2 de entorno + 12 de geo + 8 de normalize + 7 de score).
+Esperado: PASS, 30 pruebas (2 de entorno + 13 de geo + 8 de normalize + 7 de score).
 
 - [ ] **Step 7: Commit**
 
@@ -1760,7 +1787,7 @@ def merge_features(
 uv run pytest tests/test_merge.py -v
 ```
 
-Esperado: PASS, 5 pruebas.
+Esperado: PASS, 6 pruebas.
 
 - [ ] **Step 5: Escribir `scripts/99_score.py`**
 
@@ -1854,7 +1881,7 @@ Esperado: reporta `flujo_transporte` como única variable en el score y las otra
 uv run pytest -v
 ```
 
-Esperado: PASS, 55 pruebas (29 + 4 de boundary + 8 de estaciones + 9 de afluencia + 5 de merge).
+Esperado: PASS, 56 pruebas (30 + 4 de boundary + 8 de estaciones + 9 de afluencia + 5 de merge).
 
 - [ ] **Step 8: Commit**
 
@@ -1981,7 +2008,7 @@ def rescore(scores: pd.DataFrame, weights: dict[str, float]) -> pd.Series:
 uv run pytest tests/test_viz.py -v
 ```
 
-Esperado: PASS, 5 pruebas.
+Esperado: PASS, 6 pruebas.
 
 - [ ] **Step 5: Escribir `app/dashboard.py`**
 
@@ -2109,7 +2136,7 @@ Verificar:
 uv run pytest -v
 ```
 
-Esperado: PASS, 60 pruebas (55 + 5 de viz).
+Esperado: PASS, 61 pruebas (56 + 5 de viz).
 
 - [ ] **Step 9: Commit**
 
