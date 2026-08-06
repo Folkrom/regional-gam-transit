@@ -1,0 +1,27 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(uv --version)",
+      "Bash(pip3 index *)",
+      "Bash(git add *)",
+      "Bash(git -c user.name=folkrom -c user.email=devdielreyes@gmail.com commit -q -m ' *)",
+      "Bash($SK/scripts/task-brief *)",
+      "Bash(uv run *)",
+      "Bash($SK/scripts/review-package *)",
+      "Bash(git check-ignore *)",
+      "Bash(echo \"Exit status: $?\")",
+      "Bash(python3 *)",
+      "Bash(echo \"=== exit code: $? ===\")",
+      "Bash(curl -s --max-time 60 -o data/raw/_mb_desglosada.csv \"https://datos.cdmx.gob.mx/dataset/f0ff3759-5c5d-41fb-80cc-2a3c8bbab278/resource/d122639e-a56a-4f26-a8b7-983464d11aaa/download/afluenciamb_desglosado_06_2026.csv\")",
+      "Bash(curl -s --max-time 60 -o data/raw/_stc_desglosada.csv \"https://datos.cdmx.gob.mx/dataset/f2046fd5-51b5-4876-b008-bd65d95f9a02/resource/cce544e1-dc6b-42b4-bc27-0d8e6eb3ed72/download/afluenciastc_desglosado_06_2026.csv\")",
+      "Bash(curl -s --max-time 60 -o data/raw/_dicc_mb_simple.csv \"https://datos.cdmx.gob.mx/dataset/f0ff3759-5c5d-41fb-80cc-2a3c8bbab278/resource/8079033e-5e1f-4d09-8571-fc6cdd216a32/download/diccionario-de-afluencia-metrobus-plantilla.csv\")",
+      "Bash(curl -s --max-time 60 -o data/raw/_dicc_mb_desglosada.csv \"https://datos.cdmx.gob.mx/dataset/f0ff3759-5c5d-41fb-80cc-2a3c8bbab278/resource/de16751e-18d1-4cf9-abd0-4fbf36fcbe39/download/diccionario-afluencia-desglosada-mb.csv\")",
+      "Bash(curl -s --max-time 60 -o data/raw/_dicc_ste.csv \"https://datos.cdmx.gob.mx/dataset/ee806dd2-c919-46f2-858f-6a55a05b8ee6/resource/1fd34251-b1e7-4a00-ba07-5d3b9d8701e9/download/diccionario_ste_desglosado.csv\")",
+      "Bash(tee /tmp/claude-1000/-home-folkrom-projects-regional-transit/5fdf3556-cd57-4a96-8718-c70581196112/scratchpad/run1.log)",
+      "Bash(git -c user.name=folkrom -c user.email=devdielreyes@gmail.com commit -q -m 'docs: User-Agent compartido para Nominatim y Overpass *)",
+      "Bash(echo \"EXIT=$?\")",
+      "Bash(git *)",
+      "Bash(/home/folkrom/.claude/plugins/cache/claude-plugins-official/superpowers/6.2.0/skills/subagent-driven-development/scripts/review-package docs/superpowers/plans/2026-08-05-cafeteria-gam-slice-vertical.md 0c971ec HEAD)"
+    ]
+  }
+}
