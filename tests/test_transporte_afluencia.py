@@ -10,6 +10,25 @@ from rtgam.sources.transporte import (
 )
 
 
+def test_weekday_mean_sums_lines_before_averaging_days():
+    """Una estacion de transbordo aparece una vez por linea el mismo dia.
+
+    Promediar directo la parte a la mitad. Medido sobre los datos reales:
+    Martin Carrera (lineas 4 y 6) daba 24,305 en vez de 48,609.
+    """
+    rows = []
+    for fecha in ["2025-01-06", "2025-01-07"]:
+        rows.append({"fecha": fecha, "estacion": "Martín Carrera", "linea": "Linea 4", "afluencia": 300})
+        rows.append({"fecha": fecha, "estacion": "Martín Carrera", "linea": "Linea 6", "afluencia": 200})
+        rows.append({"fecha": fecha, "estacion": "Potrero", "linea": "Linea 3", "afluencia": 100})
+    out = weekday_mean_by_station(
+        pd.DataFrame(rows), year=2025, date_col="fecha",
+        station_col="estacion", value_col="afluencia",
+    ).set_index("afluencia_name")
+    assert out.loc["Martín Carrera", "afluencia_habil"] == pytest.approx(500.0)
+    assert out.loc["Potrero", "afluencia_habil"] == pytest.approx(100.0)
+
+
 @pytest.fixture
 def daily():
     """2025-01-06 a 2025-01-12: lunes a domingo."""

@@ -184,7 +184,16 @@ def weekday_mean_by_station(
     is_weekday = frame[date_col].dt.weekday < 5
     frame = frame[is_target_year & is_weekday]
 
-    grouped = frame.groupby(station_col)[value_col].mean().reset_index()
+    # Primero sumar por (fecha, estacion), DESPUES promediar entre dias.
+    # El CSV del Metro trae una fila por (fecha, linea, estacion), asi que una
+    # estacion de transbordo aparece dos veces el mismo dia. Promediar directo
+    # la parte a la mitad: Martin Carrera (L4+L6) daba 24,305 en vez de 48,609,
+    # igual La Raza, Deportivo 18 de Marzo, Instituto del Petroleo y Consulado.
+    # Justo los nodos de transbordo, que son los de mas peaton y los que mas
+    # importan para ubicar una cafeteria. Para una fuente que ya publica una
+    # fila por estacion por dia, la suma es identidad y no cambia nada.
+    por_dia = frame.groupby([date_col, station_col], as_index=False)[value_col].sum()
+    grouped = por_dia.groupby(station_col)[value_col].mean().reset_index()
     grouped.columns = ["afluencia_name", "afluencia_habil"]
     return grouped
 

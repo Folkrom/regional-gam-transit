@@ -69,7 +69,10 @@ def main() -> None:
 
     csv_paths = sorted(glob.glob(str(ROOT / "data" / "raw" / "afluencia_*.csv")))
     if not csv_paths:
-        raise SystemExit("No hay data/raw/afluencia_*.csv. Ver el Step 1 de la Tarea 8.")
+        raise SystemExit(
+            "No hay data/raw/afluencia_*.csv. Ver README.md: se baja a mano "
+            "de https://datos.cdmx.gob.mx"
+        )
     daily = pd.concat([pd.read_csv(path) for path in csv_paths], ignore_index=True)
     daily[STATION_COL] = daily[STATION_COL].map(fix_mojibake)
 

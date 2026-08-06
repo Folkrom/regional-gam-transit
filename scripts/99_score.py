@@ -58,6 +58,10 @@ def main() -> None:
     if ignored:
         print(f"Variables sin datos aun: {ignored}")
 
+    sin_peso = [c for c in features.columns if c not in weights]
+    if sin_peso:
+        print(f"AVISO: columnas sin peso en weights.yaml, excluidas del score: {sin_peso}")
+
     scores.to_parquet(SCORES_OUT)
 
     print()
