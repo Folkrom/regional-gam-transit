@@ -41,3 +41,21 @@ def compute_score(features: pd.DataFrame, weights: dict[str, float]) -> pd.DataF
 
     out["score"] = score
     return out
+
+
+def merge_features(
+    gam_hexes: pd.DataFrame, feature_frames: list[pd.DataFrame]
+) -> pd.DataFrame:
+    """Une las columnas de todas las fuentes sobre el grid completo de GAM.
+
+    Los hexagonos que una fuente no cubre quedan en cero, no en NaN: la
+    ausencia de dato aqui significa ausencia del fenomeno (cero estaciones
+    cerca, cero competencia), no dato faltante.
+
+    Se descartan lat y lon: la geometria se regenera de hex_id, y guardarla
+    en la tabla de features la duplicaria con riesgo de desincronizarse.
+    """
+    out = pd.DataFrame(index=gam_hexes.index)
+    for frame in feature_frames:
+        out = out.join(frame, how="left")
+    return out.fillna(0.0)
