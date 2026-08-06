@@ -163,8 +163,19 @@ reproducibles desde los scripts.
 ```bash
 mkdir -p src/rtgam/sources scripts app tests config
 mkdir -p data/raw data/interim data/processed
-touch src/rtgam/__init__.py src/rtgam/sources/__init__.py
+touch src/rtgam/sources/__init__.py
 touch data/.gitkeep
+```
+
+Crear `src/rtgam/__init__.py` con la identidad que ambos clientes HTTP comparten:
+
+```python
+"""Analisis de flujo peatonal para ubicacion de cafeteria en Gustavo A. Madero."""
+
+# Nominatim y Overpass rechazan peticiones sin User-Agent identificable. Es
+# politica de uso de ambos, no un detalle opcional: Overpass responde 406 Not
+# Acceptable sin el. Vive aqui y no en cada modulo para no duplicar el literal.
+USER_AGENT = "regional-transit-gam/0.1 (analisis academico de ubicacion)"
 ```
 
 - [ ] **Step 6: Crear el entorno e instalar**
@@ -639,7 +650,7 @@ def log1p_minmax(s: pd.Series) -> pd.Series:
 uv run pytest tests/test_normalize.py -v
 ```
 
-Esperado: PASS, 12 pruebas.
+Esperado: PASS, 13 pruebas.
 
 - [ ] **Step 5: Commit**
 
@@ -938,12 +949,10 @@ import requests
 from shapely.geometry import shape
 from shapely.geometry.base import BaseGeometry
 
+from rtgam import USER_AGENT
+
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 GAM_NOMINATIM_QUERY = "Gustavo A. Madero, Ciudad de Mexico, Mexico"
-
-# Nominatim rechaza peticiones sin User-Agent identificable. Es su politica
-# de uso, no un detalle opcional.
-USER_AGENT = "regional-transit-gam/0.1 (analisis academico de ubicacion)"
 
 
 def polygon_from_nominatim_geojson(payload: dict) -> BaseGeometry:
@@ -1246,6 +1255,34 @@ def test_fetch_stations_raises_instead_of_returning_none(tmp_path, monkeypatch):
     assert not cache.exists(), "sin respuesta valida no debe quedar cache escrita"
 
 
+def test_fetch_stations_sends_a_user_agent(tmp_path, monkeypatch):
+    """Overpass responde 406 a las peticiones sin User-Agent identificable.
+
+    Verificado contra el servidor real: sin el header devuelve 406 Not
+    Acceptable; con el, 200. Es su politica de uso, no un detalle opcional.
+    """
+    cache = tmp_path / "osm_stations.json"
+    seen = {}
+
+    class Ok:
+        status_code = 200
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"elements": []}
+
+    def capture(*args, **kwargs):
+        seen.update(kwargs.get("headers") or {})
+        return Ok()
+
+    monkeypatch.setattr(requests, "post", capture)
+    fetch_stations(BBOX, cache)
+    assert "User-Agent" in seen
+    assert seen["User-Agent"], "el User-Agent no puede ir vacio"
+
+
 def test_fetch_stations_does_not_retry_a_client_error(tmp_path, monkeypatch):
     """Un 400 es consulta malformada: fallar rapido, no machacar el servidor."""
     cache = tmp_path / "osm_stations.json"
@@ -1412,7 +1449,10 @@ def fetch_stations(
     for attempt in range(OVERPASS_RETRIES):
         try:
             response = requests.post(
-                OVERPASS_URL, data={"data": query}, timeout=OVERPASS_TIMEOUT_S
+                OVERPASS_URL,
+                data={"data": query},
+                headers={"User-Agent": USER_AGENT},
+                timeout=OVERPASS_TIMEOUT_S,
             )
             response.raise_for_status()
             payload = response.json()
@@ -1630,6 +1670,7 @@ from pathlib import Path
 import pandas as pd
 import requests
 
+from rtgam import USER_AGENT
 from rtgam.geo import accumulate_decay
 ```
 
@@ -2065,7 +2106,7 @@ Esperado: reporta `flujo_transporte` como única variable en el score y las otra
 uv run pytest -v
 ```
 
-Esperado: PASS, 63 pruebas (30 + 4 de boundary + 12 de estaciones + 12 de afluencia + 5 de merge).
+Esperado: PASS, 64 pruebas (30 + 4 de boundary + 13 de estaciones + 12 de afluencia + 5 de merge).
 
 - [ ] **Step 8: Commit**
 
@@ -2320,7 +2361,7 @@ Verificar:
 uv run pytest -v
 ```
 
-Esperado: PASS, 68 pruebas (63 + 5 de viz).
+Esperado: PASS, 69 pruebas (64 + 5 de viz).
 
 - [ ] **Step 9: Commit**
 
