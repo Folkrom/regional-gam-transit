@@ -31,8 +31,12 @@ def hexes_for_polygon(polygon, resolution: int = H3_RESOLUTION) -> set[str]:
 
     `polygon` es cualquier objeto con __geo_interface__ (shapely sirve).
     h3.geo_to_cells respeta la convencion GeoJSON de lon/lat.
+
+    El set() no es decorativo: h3 4.5.0 devuelve una list, y el contrato de
+    esta funcion es un set porque quien la consume espera unicidad garantizada
+    y operadores de conjunto.
     """
-    return h3.geo_to_cells(polygon, resolution)
+    return set(h3.geo_to_cells(polygon, resolution))
 
 
 def hex_centroids(hexes: Iterable[str]) -> pd.DataFrame:

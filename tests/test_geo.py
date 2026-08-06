@@ -27,6 +27,18 @@ def test_haversine_broadcasts():
     assert d[1, 1] == pytest.approx(0.0, abs=1e-6)
 
 
+def test_haversine_applies_latitude_cosine():
+    """Un grado de longitud se encoge con el coseno de la latitud.
+
+    Sin esta prueba, una haversine a la que le falte el termino
+    cos(lat1)*cos(lat2) pasa todas las demas: las otras comparan puntos con
+    la misma longitud, donde ese termino se multiplica por sin(0) y desaparece.
+    A lat 19.5 la diferencia es 104,817 m contra 111,195 m — 6%.
+    """
+    d = haversine_m(19.5, -99.5, 19.5, -98.5)
+    assert d == pytest.approx(104_817, rel=0.001)
+
+
 def test_hexes_for_polygon_returns_res9_cells():
     poly = Polygon(
         [(-99.15, 19.50), (-99.10, 19.50), (-99.10, 19.55), (-99.15, 19.55)]
@@ -34,6 +46,7 @@ def test_hexes_for_polygon_returns_res9_cells():
     cells = hexes_for_polygon(poly, resolution=9)
     assert len(cells) > 100
     assert all(isinstance(c, str) for c in cells)
+    assert isinstance(cells, set)
 
 
 def test_hex_centroids_indexed_and_sorted():
