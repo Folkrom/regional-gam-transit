@@ -110,6 +110,21 @@ def test_accumulates_multiple_points():
     assert out["h1"] == pytest.approx(1500.0, rel=1e-6)
 
 
+def test_nan_value_raises_instead_of_poisoning_every_hexagon():
+    """Un NaN no ensucia un hexagono: los ensucia todos.
+
+    El producto punto hace 0.0 * NaN = NaN, asi que un hexagono fuera del
+    corte de 800 m tambien sale NaN. Verificado: con una estacion en NaN, un
+    hexagono a 90 km quedaba NaN. Por eso se falla ruidoso en vez de repartir.
+    """
+    centroids = _centroid_at(19.5, -99.1)
+    points = pd.DataFrame(
+        {"lat": [19.5, 19.51], "lon": [-99.1, -99.1], "afluencia": [1000.0, np.nan]}
+    )
+    with pytest.raises(ValueError, match="NaN"):
+        accumulate_decay(centroids, points, "afluencia")
+
+
 def test_empty_points_returns_zeros_not_error():
     centroids = _centroid_at(19.5, -99.1)
     points = pd.DataFrame({"lat": [], "lon": [], "afluencia": []})

@@ -75,6 +75,18 @@ def accumulate_decay(
     if len(points) == 0:
         return pd.Series(0.0, index=centroids.index)
 
+    # Un solo NaN aqui no ensucia un hexagono: los ensucia TODOS. El producto
+    # punto multiplica cada peso por cada valor, y 0.0 * NaN sigue siendo NaN,
+    # asi que hasta un hexagono a 90 km, muy fuera del corte, sale NaN. Falla
+    # ruidoso: un NaN en la afluencia es un bug de datos que hay que ver.
+    missing = int(points[value_col].isna().sum())
+    if missing:
+        raise ValueError(
+            f"{value_col} trae {missing} valores NaN. El producto punto los "
+            f"propagaria a los {len(centroids)} hexagonos, no solo a los "
+            f"cercanos. Limpia la fuente antes de repartir."
+        )
+
     distances = haversine_m(
         centroids["lat"].to_numpy()[:, None],
         centroids["lon"].to_numpy()[:, None],

@@ -429,6 +429,21 @@ def test_accumulates_multiple_points():
     assert out["h1"] == pytest.approx(1500.0, rel=1e-6)
 
 
+def test_nan_value_raises_instead_of_poisoning_every_hexagon():
+    """Un NaN no ensucia un hexagono: los ensucia todos.
+
+    El producto punto hace 0.0 * NaN = NaN, asi que un hexagono fuera del
+    corte de 800 m tambien sale NaN. Verificado: con una estacion en NaN, un
+    hexagono a 90 km quedaba NaN. Por eso se falla ruidoso en vez de repartir.
+    """
+    centroids = _centroid_at(19.5, -99.1)
+    points = pd.DataFrame(
+        {"lat": [19.5, 19.51], "lon": [-99.1, -99.1], "afluencia": [1000.0, np.nan]}
+    )
+    with pytest.raises(ValueError, match="NaN"):
+        accumulate_decay(centroids, points, "afluencia")
+
+
 def test_empty_points_returns_zeros_not_error():
     centroids = _centroid_at(19.5, -99.1)
     points = pd.DataFrame({"lat": [], "lon": [], "afluencia": []})
@@ -493,6 +508,18 @@ def accumulate_decay(
     if len(points) == 0:
         return pd.Series(0.0, index=centroids.index)
 
+    # Un solo NaN aqui no ensucia un hexagono: los ensucia TODOS. El producto
+    # punto multiplica cada peso por cada valor, y 0.0 * NaN sigue siendo NaN,
+    # asi que hasta un hexagono a 90 km, muy fuera del corte, sale NaN. Falla
+    # ruidoso: un NaN en la afluencia es un bug de datos que hay que ver.
+    missing = int(points[value_col].isna().sum())
+    if missing:
+        raise ValueError(
+            f"{value_col} trae {missing} valores NaN. El producto punto los "
+            f"propagaria a los {len(centroids)} hexagonos, no solo a los "
+            f"cercanos. Limpia la fuente antes de repartir."
+        )
+
     distances = haversine_m(
         centroids["lat"].to_numpy()[:, None],
         centroids["lon"].to_numpy()[:, None],
@@ -510,7 +537,7 @@ def accumulate_decay(
 uv run pytest tests/test_geo.py -v
 ```
 
-Esperado: PASS, 13 pruebas (las 6 de la Tarea 2 más 7 nuevas).
+Esperado: PASS, 14 pruebas (las 6 de la Tarea 2 más 8 nuevas).
 
 - [ ] **Step 5: Commit**
 
@@ -1896,6 +1923,14 @@ def main() -> None:
         raise SystemExit("No hay data/raw/afluencia_*.csv. Ver el Step 1 de la Tarea 8.")
     daily = pd.concat([pd.read_csv(path) for path in csv_paths], ignore_index=True)
     daily[STATION_COL] = daily[STATION_COL].map(fix_mojibake)
+
+    # Reportar fechas ilegibles antes de filtrar. Sobre 1.17 millones de filas,
+    # un cambio de formato en el portal se comeria parte de la muestra sin que
+    # nada avisara.
+    unparsed = int(pd.to_datetime(daily[DATE_COL], errors="coerce").isna().sum())
+    if unparsed:
+        print(f"AVISO: {unparsed} filas con fecha ilegible, excluidas "
+              f"({unparsed / len(daily) * 100:.2f}% del total)")
 
     afluencia = weekday_mean_by_station(
         daily, year=args.year, date_col=DATE_COL, station_col=STATION_COL, value_col=VALUE_COL

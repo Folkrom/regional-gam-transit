@@ -73,6 +73,14 @@ def main() -> None:
     daily = pd.concat([pd.read_csv(path) for path in csv_paths], ignore_index=True)
     daily[STATION_COL] = daily[STATION_COL].map(fix_mojibake)
 
+    # Reportar fechas ilegibles antes de filtrar. Sobre 1.17 millones de filas,
+    # un cambio de formato en el portal se comeria parte de la muestra sin que
+    # nada avisara.
+    unparsed = int(pd.to_datetime(daily[DATE_COL], errors="coerce").isna().sum())
+    if unparsed:
+        print(f"AVISO: {unparsed} filas con fecha ilegible, excluidas "
+              f"({unparsed / len(daily) * 100:.2f}% del total)")
+
     afluencia = weekday_mean_by_station(
         daily, year=args.year, date_col=DATE_COL, station_col=STATION_COL, value_col=VALUE_COL
     )
