@@ -131,6 +131,8 @@ testpaths = ["tests"]
 
 - [ ] **Step 4: Crear `.gitignore`**
 
+El archivo ya existe con la entrada `.superpowers/`; **conservarla** al escribir el resto:
+
 ```gitignore
 .venv/
 __pycache__/
@@ -139,9 +141,11 @@ __pycache__/
 data/
 !data/.gitkeep
 .streamlit/
+.superpowers/
 ```
 
 `data/` se ignora entero: son descargas y derivados, reproducibles desde los scripts.
+`.superpowers/` es scratch del proceso de ejecución, no del proyecto.
 
 - [ ] **Step 5: Crear los archivos del paquete y las carpetas de datos**
 
