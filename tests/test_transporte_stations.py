@@ -134,6 +134,34 @@ def test_fetch_stations_raises_instead_of_returning_none(tmp_path, monkeypatch):
     assert not cache.exists(), "sin respuesta valida no debe quedar cache escrita"
 
 
+def test_fetch_stations_sends_a_user_agent(tmp_path, monkeypatch):
+    """Overpass responde 406 a las peticiones sin User-Agent identificable.
+
+    Verificado contra el servidor real: sin el header devuelve 406 Not
+    Acceptable; con el, 200. Es su politica de uso, no un detalle opcional.
+    """
+    cache = tmp_path / "osm_stations.json"
+    seen = {}
+
+    class Ok:
+        status_code = 200
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"elements": []}
+
+    def capture(*args, **kwargs):
+        seen.update(kwargs.get("headers") or {})
+        return Ok()
+
+    monkeypatch.setattr(requests, "post", capture)
+    fetch_stations(BBOX, cache)
+    assert "User-Agent" in seen
+    assert seen["User-Agent"], "el User-Agent no puede ir vacio"
+
+
 def test_fetch_stations_does_not_retry_a_client_error(tmp_path, monkeypatch):
     """Un 400 es consulta malformada: fallar rapido, no machacar el servidor."""
     cache = tmp_path / "osm_stations.json"

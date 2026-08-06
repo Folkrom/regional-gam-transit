@@ -12,12 +12,10 @@ import requests
 from shapely.geometry import shape
 from shapely.geometry.base import BaseGeometry
 
+from rtgam import USER_AGENT
+
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 GAM_NOMINATIM_QUERY = "Gustavo A. Madero, Ciudad de Mexico, Mexico"
-
-# Nominatim rechaza peticiones sin User-Agent identificable. Es su politica
-# de uso, no un detalle opcional.
-USER_AGENT = "regional-transit-gam/0.1 (analisis academico de ubicacion)"
 
 
 def polygon_from_nominatim_geojson(payload: dict) -> BaseGeometry:

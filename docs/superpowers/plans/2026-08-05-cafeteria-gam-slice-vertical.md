@@ -1620,6 +1620,32 @@ def test_name_map_matches_partial_name():
     assert out.iloc[0]["similarity"] > 0.6
 
 
+def test_name_map_rejects_unrelated_stations():
+    """El bug que motivo esta regla, fijado como prueba.
+
+    Con el cutoff viejo de 0.6, Obrera (linea 8, Cuauhtemoc) cruzaba con
+    Potrero (GAM) y Zapata (Benito Juarez) con La Pastora (GAM). La afluencia
+    de media ciudad aterrizaba en hexagonos de GAM sin que nada fallara.
+    """
+    out = propose_name_map(["Obrera", "Zapata"], ["Potrero", "La Pastora"])
+    assert out.set_index("afluencia_name").loc["Obrera", "osm_name"] is None
+    assert out.set_index("afluencia_name").loc["Zapata", "osm_name"] is None
+
+
+def test_name_map_prefers_exact_over_containment():
+    """Aragon, Bosque de Aragon y Villa de Aragon son tres estaciones reales."""
+    osm = ["Aragón", "Bosque de Aragón", "Villa de Aragón"]
+    out = propose_name_map(["Aragón"], osm).set_index("afluencia_name")
+    assert out.loc["Aragón", "osm_name"] == "Aragón"
+    assert out.loc["Aragón", "similarity"] == 1.0
+
+
+def test_name_map_leaves_ambiguous_containment_unmatched():
+    """Sin match exacto y con varias candidatas por contencion, decide un humano."""
+    out = propose_name_map(["Central"], ["Central Norte", "Central Sur"])
+    assert out.iloc[0]["osm_name"] is None
+
+
 def test_name_map_leaves_unmatched_as_none():
     out = propose_name_map(["Estacion Inventada XYZ"], ["Potrero"])
     assert out.iloc[0]["osm_name"] is None
@@ -1677,7 +1703,7 @@ from rtgam.geo import accumulate_decay
 Después, agregar al final de `src/rtgam/sources/transporte.py`:
 
 ```python
-NAME_MATCH_CUTOFF = 0.6
+NAME_MATCH_CUTOFF = 0.85
 
 
 def weekday_mean_by_station(
@@ -1723,15 +1749,44 @@ def propose_name_map(
     Compara sobre la forma normalizada, asi que acentos y guiones no estorban.
     """
     normalized_osm = {normalize_name(name): name for name in osm_names}
-    candidates = list(normalized_osm)
 
     rows = []
     for name in sorted(afluencia_names):
         key = normalize_name(name)
-        matches = difflib.get_close_matches(key, candidates, n=1, cutoff=cutoff)
-        if matches:
-            similarity = difflib.SequenceMatcher(None, key, matches[0]).ratio()
-            rows.append((name, normalized_osm[matches[0]], similarity))
+
+        # 1. Igualdad exacta ya normalizada. Gana siempre, y es lo que salva a
+        #    "Aragon", "Bosque de Aragon" y "Villa de Aragon" de pisarse entre
+        #    ellas: las tres son estaciones distintas y reales.
+        if key in normalized_osm:
+            rows.append((name, normalized_osm[key], 1.0))
+            continue
+
+        # 2. Contencion de subcadena, solo si es UNICA. Esto es lo que cruza
+        #    "Deportivo 18 de Marzo" con "18 de Marzo", que puntua apenas 0.69
+        #    y no pasaria ningun umbral sano. Si hay varias candidatas la
+        #    dejamos sin cruzar: que decida un humano, no el desempate.
+        contained = sorted(
+            {osm for osm_key, osm in normalized_osm.items()
+             if key in osm_key or osm_key in key}
+        )
+        if len(contained) == 1:
+            rows.append((name, contained[0], 0.9))
+            continue
+        if len(contained) > 1:
+            rows.append((name, None, 0.0))
+            continue
+
+        # 3. Similaridad difusa, con umbral alto. El 0.6 original cruzaba
+        #    "Obrera" con "Potrero" (0.62) y "Zapata" con "La Pastora" (0.62),
+        #    mandando afluencia de estaciones de otras alcaldias a hexagonos
+        #    de GAM. Eso no es un cruce flojo: es dato inventado.
+        best_osm, best_score = None, 0.0
+        for osm_key, osm in normalized_osm.items():
+            score = difflib.SequenceMatcher(None, key, osm_key).ratio()
+            if score > best_score:
+                best_osm, best_score = osm, score
+        if best_score >= cutoff:
+            rows.append((name, best_osm, best_score))
         else:
             rows.append((name, None, 0.0))
 
@@ -1756,7 +1811,7 @@ def to_hex_features(gam_hexes: pd.DataFrame, stations: pd.DataFrame) -> pd.DataF
 uv run pytest tests/test_transporte_afluencia.py -v
 ```
 
-Esperado: PASS, 12 pruebas.
+Esperado: PASS, 15 pruebas.
 
 - [ ] **Step 6: Escribir `scripts/02_transporte.py`**
 
@@ -2106,7 +2161,7 @@ Esperado: reporta `flujo_transporte` como única variable en el score y las otra
 uv run pytest -v
 ```
 
-Esperado: PASS, 64 pruebas (30 + 4 de boundary + 13 de estaciones + 12 de afluencia + 5 de merge).
+Esperado: PASS, 67 pruebas (30 + 4 de boundary + 13 de estaciones + 15 de afluencia + 5 de merge).
 
 - [ ] **Step 8: Commit**
 
@@ -2361,7 +2416,7 @@ Verificar:
 uv run pytest -v
 ```
 
-Esperado: PASS, 69 pruebas (64 + 5 de viz).
+Esperado: PASS, 72 pruebas (67 + 5 de viz).
 
 - [ ] **Step 9: Commit**
 
