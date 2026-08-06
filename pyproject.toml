@@ -8,7 +8,15 @@ dependencies = [
     "pandas>=2.2",
     "numpy>=1.26",
     "shapely>=2.0",
-    "pyarrow>=16.0",
+    # Acotado a proposito, no por comodidad. pyarrow 25.0.0 revienta con
+    # SIGSEGV dentro del hilo de scripts de Streamlit: el proceso se cae solo
+    # a los pocos segundos, sin traceback, y de forma intermitente (3 de cada
+    # 5 arranques). Medido con 6 corridas por version: 21.0.0 da 0 crashes,
+    # 25.0.0 da 3 de 5. Las versiones 22 a 24 no se probaron.
+    # Para volver a subir el techo: correr el dashboard 6+ veces seguidas y
+    # confirmar que ninguna sale con codigo 139. Una sola corrida no basta,
+    # el fallo es una carrera.
+    "pyarrow>=21,<22",
     "requests>=2.32",
     "PyYAML>=6.0",
     "streamlit>=1.49",
