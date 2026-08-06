@@ -6,3 +6,4 @@ data/*
 !data/.gitkeep
 .streamlit/
 .superpowers/
+.claude/
