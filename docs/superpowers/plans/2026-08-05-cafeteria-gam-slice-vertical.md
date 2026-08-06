@@ -2063,6 +2063,30 @@ def test_merge_keeps_all_hexes_filling_missing_with_zero(hexes):
     assert not out.isna().any().any()
 
 
+def test_merge_raises_on_nan_from_a_source(hexes):
+    """Un NaN de la fuente no es un hueco del join.
+
+    Rellenar los dos con cero esconde un bug de datos detras de un valor que
+    parece legitimo, y ese cero entra al score sin que nada avise.
+    """
+    import numpy as np
+
+    sucia = pd.DataFrame({"flujo_transporte": [10.0, np.nan]}, index=hexes.index)
+    with pytest.raises(ValueError, match="NaN"):
+        merge_features(hexes, [sucia])
+
+
+def test_merge_ignores_hexes_outside_the_grid(hexes):
+    """Una fuente con hexagonos ajenos no debe agrandar la malla."""
+    ajena = pd.DataFrame(
+        {"flujo_transporte": [1.0, 2.0, 99.0]},
+        index=pd.Index(["a", "b", "fuera_de_gam"], name="hex_id"),
+    )
+    out = merge_features(hexes, [ajena])
+    assert len(out) == 2
+    assert "fuera_de_gam" not in out.index
+
+
 def test_merge_with_no_sources_returns_empty_columns(hexes):
     out = merge_features(hexes, [])
     assert len(out) == 2
@@ -2096,8 +2120,22 @@ def merge_features(
     """
     out = pd.DataFrame(index=gam_hexes.index)
     for frame in feature_frames:
-        out = out.join(frame, how="left")
-    return out.fillna(0.0)
+        # Un NaN que trae la fuente NO es lo mismo que un hueco del join, y
+        # rellenar los dos con cero borra la diferencia. Si una fuente cubre
+        # un hexagono y aun asi calculo NaN, eso es un bug de datos, igual que
+        # en accumulate_decay. Se falla ruidoso antes de que el cero mentiroso
+        # entre al score.
+        missing = int(frame.isna().sum().sum())
+        if missing:
+            raise ValueError(
+                f"La fuente con columnas {list(frame.columns)} trae {missing} "
+                "valores NaN en hexagonos que si cubre. Un hueco del join se "
+                "rellena con cero; un NaN de la fuente es un bug de datos."
+            )
+        # reindex con fill_value rellena SOLO las etiquetas que la fuente no
+        # tiene. Los hexagonos que si cubre llegan con su valor tal cual.
+        out = out.join(frame.reindex(gam_hexes.index, fill_value=0.0), how="left")
+    return out
 ```
 
 - [ ] **Step 4: Correr las pruebas y verificar que pasan**
@@ -2455,7 +2493,7 @@ Verificar:
 uv run pytest -v
 ```
 
-Esperado: PASS, 72 pruebas (67 + 5 de viz).
+Esperado: PASS, 75 pruebas (70 + 5 de viz).
 
 - [ ] **Step 9: Commit**
 
