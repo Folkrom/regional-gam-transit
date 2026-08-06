@@ -7,6 +7,7 @@ Uso:
 """
 
 import argparse
+import math
 from pathlib import Path
 
 from rtgam.boundary import fetch_gam_polygon
@@ -15,6 +16,9 @@ from rtgam.geo import H3_RESOLUTION, hex_centroids, hexes_for_polygon
 ROOT = Path(__file__).resolve().parents[1]
 RAW_BOUNDARY = ROOT / "data" / "raw" / "gam_boundary.geojson"
 OUTPUT = ROOT / "data" / "processed" / "gam_hexes.parquet"
+
+# Area media de una celda H3 resolucion 9, en km2.
+H3_RES9_CELL_KM2 = 0.105
 
 
 def main() -> None:
@@ -30,9 +34,20 @@ def main() -> None:
     centroids.to_parquet(OUTPUT)
 
     minx, miny, maxx, maxy = polygon.bounds
-    print(f"Poligono GAM: {polygon.geom_type}, area aprox {polygon.area * 111**2:.1f} km2")
+    # Un grado de latitud son ~111 km, pero uno de longitud se encoge con el
+    # coseno de la latitud: a 19.5 grados vale ~104.6 km, no 111.
+    lat_mid = math.radians((miny + maxy) / 2)
+    area_km2 = polygon.area * 111.0 * (111.0 * math.cos(lat_mid))
+    print(f"Poligono GAM: {polygon.geom_type}, area aprox {area_km2:.1f} km2")
     print(f"Bounding box: lon [{minx:.4f}, {maxx:.4f}]  lat [{miny:.4f}, {maxy:.4f}]")
+    # h3.geo_to_cells usa contencion por centro: una celda del borde cuyo
+    # centro cae fuera del poligono se descarta. Por eso los hexagonos cubren
+    # menos area que el poligono, y conviene imprimir ambas cifras.
+    covered_km2 = len(centroids) * H3_RES9_CELL_KM2
     print(f"Hexagonos H3 res {H3_RESOLUTION}: {len(centroids)}")
+    print(f"Area cubierta por hexagonos: {covered_km2:.1f} km2 "
+          f"({covered_km2 / area_km2 * 100:.0f}% del poligono; el resto son "
+          f"celdas del borde descartadas por contencion por centro)")
     print(f"Escrito: {OUTPUT}")
 
 

@@ -39,24 +39,38 @@ def fetch_gam_polygon(cache_path: Path, force: bool = False) -> BaseGeometry:
     """Descarga el poligono de GAM, con cache en disco.
 
     Si `cache_path` existe y `force` es falso, no toca la red.
+
+    El orden importa: se valida ANTES de escribir la cache. Al reves, una
+    respuesta 200 con geometria inservible quedaria persistida y envenenaria
+    todas las corridas siguientes, que releerian el mismo payload malo y
+    fallarian igual sin explicar por que.
     """
     if cache_path.exists() and not force:
-        payload = json.loads(cache_path.read_text(encoding="utf-8"))
-    else:
-        response = requests.get(
-            NOMINATIM_URL,
-            params={
-                "q": GAM_NOMINATIM_QUERY,
-                "format": "geojson",
-                "polygon_geojson": 1,
-                "limit": 1,
-            },
-            headers={"User-Agent": USER_AGENT},
-            timeout=60,
-        )
-        response.raise_for_status()
-        payload = response.json()
-        cache_path.parent.mkdir(parents=True, exist_ok=True)
-        cache_path.write_text(json.dumps(payload), encoding="utf-8")
+        try:
+            payload = json.loads(cache_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as error:
+            raise ValueError(
+                f"La cache {cache_path} esta corrupta o truncada. "
+                f"Borrala o corre con --force para volver a descargar. ({error})"
+            ) from error
+        return polygon_from_nominatim_geojson(payload)
 
-    return polygon_from_nominatim_geojson(payload)
+    response = requests.get(
+        NOMINATIM_URL,
+        params={
+            "q": GAM_NOMINATIM_QUERY,
+            "format": "geojson",
+            "polygon_geojson": 1,
+            "limit": 1,
+        },
+        headers={"User-Agent": USER_AGENT},
+        timeout=60,
+    )
+    response.raise_for_status()
+    payload = response.json()
+
+    polygon = polygon_from_nominatim_geojson(payload)
+
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    cache_path.write_text(json.dumps(payload), encoding="utf-8")
+    return polygon
