@@ -15,18 +15,6 @@ def test_haversine_known_distance():
     assert d == pytest.approx(111_195, rel=0.001)
 
 
-def test_haversine_broadcasts():
-    """La matriz hexagonos x puntos depende de este broadcasting."""
-    lats = np.array([[19.5], [19.6]])
-    lons = np.array([[-99.1], [-99.1]])
-    plats = np.array([[19.5, 19.6]])
-    plons = np.array([[-99.1, -99.1]])
-    d = haversine_m(lats, lons, plats, plons)
-    assert d.shape == (2, 2)
-    assert d[0, 0] == pytest.approx(0.0, abs=1e-6)
-    assert d[1, 1] == pytest.approx(0.0, abs=1e-6)
-
-
 def test_haversine_applies_latitude_cosine():
     """Un grado de longitud se encoge con el coseno de la latitud.
 
@@ -37,6 +25,18 @@ def test_haversine_applies_latitude_cosine():
     """
     d = haversine_m(19.5, -99.5, 19.5, -98.5)
     assert d == pytest.approx(104_817, rel=0.001)
+
+
+def test_haversine_broadcasts():
+    """La matriz hexagonos x puntos depende de este broadcasting."""
+    lats = np.array([[19.5], [19.6]])
+    lons = np.array([[-99.1], [-99.1]])
+    plats = np.array([[19.5, 19.6]])
+    plons = np.array([[-99.1, -99.1]])
+    d = haversine_m(lats, lons, plats, plons)
+    assert d.shape == (2, 2)
+    assert d[0, 0] == pytest.approx(0.0, abs=1e-6)
+    assert d[1, 1] == pytest.approx(0.0, abs=1e-6)
 
 
 def test_hexes_for_polygon_returns_res9_cells():
