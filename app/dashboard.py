@@ -81,9 +81,13 @@ def main() -> None:
     with right:
         st.subheader("Top 20 hexagonos")
         norm_columns = [c for c in scores.columns if c.endswith("_norm")]
+        # width="stretch" reemplaza al use_container_width=True que Streamlit
+        # deprecó. Ojo: el use_container_width de st_folium de arriba NO es el
+        # mismo parámetro, es API propia de streamlit-folium y ahí sigue siendo
+        # el correcto (su `width` son píxeles, no un modo de ancho).
         st.dataframe(
             scores.nlargest(20, "score")[["score"] + norm_columns].round(3),
-            use_container_width=True,
+            width="stretch",
         )
         st.caption(
             "Las columnas _norm muestran por que gano cada hexagono, no solo que gano. "

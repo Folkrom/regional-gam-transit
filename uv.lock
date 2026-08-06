@@ -923,7 +923,7 @@ requires-dist = [
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "requests", specifier = ">=2.32" },
     { name = "shapely", specifier = ">=2.0" },
-    { name = "streamlit", specifier = ">=1.40" },
+    { name = "streamlit", specifier = ">=1.49" },
     { name = "streamlit-folium", specifier = ">=0.23" },
 ]
 provides-extras = ["dev"]
