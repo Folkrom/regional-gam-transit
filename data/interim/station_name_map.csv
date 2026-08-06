@@ -1,0 +1,164 @@
+afluencia_name,osm_name,similarity,candidatos
+Acatitla,,0.5714285714285714,Fátima | Cuitláhuac | Zacatenco
+Aculco,,0.5333333333333333,Zacatenco | Tlalpexco | Consulado
+Agrícola Oriental,,0.6428571428571429,La Forestal | Martín Carrera | México Central Norte
+Allende,,0.5714285714285714,Vallejo | Valle Gómez | Talismán
+Apatlaco,,0.5882352941176471,Zacatenco | Tlalpexco | Tlatelolco
+Aquiles Serdán,,0.5333333333333333,Bosque de Aragón | Tanque de Agua | Villa de Aragón
+Aragón,Aragón,1.0,
+Atlalilco,,0.7368421052631579,Tlatelolco | Tlalpexco | Vallejo
+Auditorio,,0.5555555555555556,Misterios | Deportivo | Bondojito
+Autobuses del Norte,Autobuses del Norte,1.0,
+Balbuena,,0.5555555555555556,Buenavista | CETRAM Buenavista | Garibaldi-Lagunilla
+Balderas,,0.43478260869565216,Villa de Aragón | Canal del Norte | Base Microbuses
+Barranca del Muerto,,0.5882352941176471,Canal del Norte | CETRAM 18 de Marzo | Ferrería/Arena Ciudad de México
+Bellas Artes,,0.5263157894736842,La Mesa | La Forestal | Base Microbuses
+Bondojito,Bondojito,1.0,
+Bosque de Aragón,Bosque de Aragón,1.0,
+Boulevard Puerto Aéreo,,0.4375,La Pastora | Paradero de Indios Verdes | Romero Rubio
+Buenavista,Buenavista,1.0,
+Calle 11,,0.5333333333333333,Vallejo | Valle Gómez | Canal del Norte
+Camarones,,0.5333333333333333,Aragón | Ticomán | Morelos
+Canal de San Juan,,0.625,Canal del Norte | Tanque de Agua | Archivo General de la Nación
+Canal del Norte,Canal del Norte,1.0,
+Candelaria,,0.5882352941176471,Oceanía | Santa Clara | Canal del Norte
+Centro Médico,,0.5806451612903226,CETRAM Politécnico | Río de Remedios | Periférico
+Cerro de la Estrella,,0.5294117647058824,CETRAM La Raza | León de los Aldama | Río de los Remedios
+Chabacano,,0.5555555555555556,Zacatenco | La Cañada | Cuitláhuac
+Chapultepec,,0.8,Cuautepec | Lomas de Cuautepec | Zacatenco
+Chilpancingo,,0.5263157894736842,Hidalgo | Zacatenco | Archivo General de la Nación
+Ciudad Azteca,,0.5454545454545454,Cuautepec | La Raza | Zacatenco
+Ciudad Deportiva,,0.64,"Deportivo | Estación Méxicable ""Deportivo"" | Deportivo Oceanía"
+Colegio Militar,Colegio Militar,1.0,
+Constitución de 1917,,0.5238095238095238,Instituto del Petróleo | Consulado L4 | Campos Revolución
+Constituyentes,,0.5,Instituto del Petróleo | Consulado | Metro Politécnico (Poniente)
+Consulado,Consulado,1.0,
+Copilco,,0.5,Consulado | Tlatelolco | Cuitláhuac
+Coyoacán,,0.5333333333333333,Ticomán | Cocoyotes (La Brecha) | Zacatenco
+Coyuya,,0.5333333333333333,Consulado | Ticomán | Fortuna
+Cuatro Caminos,,0.5714285714285714,Eduardo Molina | CETRAM Politécnico | Río de Remedios
+Cuauhtémoc,,0.7368421052631579,Cuautepec | Zacatenco | Tlatelolco
+Cuitláhuac,Cuitláhuac,1.0,
+Culhuacán,,0.7368421052631579,Cuitláhuac | La Cañada | Autobuses Teotihuacán
+Deportivo 18 de Marzo,Deportivo 18 de Marzo,1.0,
+Deportivo Oceanía,Deportivo Oceanía,1.0,
+División del Norte,,0.6666666666666666,Canal del Norte | Autobuses del Norte | México Central Norte
+Doctores,,0.5333333333333333,Potrero | Morelos | Indios Verdes
+Ecatepec,,0.8235294117647058,Cuautepec | Lomas de Cuautepec | Zacatenco
+Eduardo Molina,Eduardo Molina,1.0,
+Eje Central,,0.5806451612903226,México Central Norte | CETRAM La Raza | Normal
+El Rosario,,0.5,Los Bordos | Morelos | La Raza
+Ermita,,0.5555555555555556,Terminal ETT | CETRAM Buenavista | Tepito
+Escuadrón 201,,0.48,Consulado L4 | Consulado | Eduardo Molina
+Etiopía/Plaza de la Transparencia,,0.5245901639344263,"Estación Méxicable ""La Cañada"" | Villa de Aragón | Metro Villa de Aragón LB"
+Eugenia,,0.5882352941176471,Buenavista | Oceanía | Lagunilla
+Ferrería/Arena Ciudad de México,Ferrería/Arena Ciudad de México,1.0,
+Fray Servando,,0.45454545454545453,La Cañada | CETRAM Potrero | San Isidro
+Garibaldi/Lagunilla,Garibaldi-Lagunilla,1.0,
+General Anaya,,0.5454545454545454,La Cañada | Archivo General de la Nación | CETRAM La Raza
+Guelatao,,0.5555555555555556,Buenavista | Guerrero | Lagunilla
+Guerrero,Guerrero,1.0,
+Gómez Farias,,0.5714285714285714,Poza Rica | Oceanía | Romero Rubio
+Hangares,,0.5714285714285714,Hank González | Canal del Norte | Carlos Hank González
+Hidalgo,Hidalgo,1.0,
+Hospital 20 de Noviembre,,0.46153846153846156,Canal del Norte | Paradero de Indios Verdes | Río de los Remedios
+Hospital General,,0.45454545454545453,Archivo General de la Nación | Santa Clara | Hidalgo
+Impulsora,Impulsora,1.0,
+Indios Verdes,Indios Verdes,1.0,
+Instituto del Petróleo,Instituto del Petróleo,1.0,
+Insurgentes,,0.5,Misterios | Indios Verdes | Norte 45
+Insurgentes Sur,,0.43478260869565216,Norte 45 | Indios Verdes | Misterios
+Isabel la Católica,,0.5,"La Pastora | Santa Clara | Estación Méxicable ""La Cañada"""
+Iztacalco,,0.6666666666666666,Zacatenco | Tlalpexco | Tlatelolco
+Iztapalapa,,0.5,Cuitláhuac | Santa Clara | Tlalpexco
+Jamaica,,0.5,Poza Rica | Martín Carrera | Fátima
+Juanacatlán,,0.5454545454545454,Santa Clara | Zacatenco | Nezahualcóyotl
+Juárez,,0.46153846153846156,La Raza | Guerrero | Cuautepec
+La Paz,,0.7692307692307693,La Raza | La Raza L5 | La Raza L3
+La Raza,La Raza,1.0,
+La Viga,,0.8,La Villa | Lindavista | La Raza
+La Villa/Basílica,La Villa-Basílica,1.0,
+Lagunilla,Lagunilla,1.0,
+Lindavista,Lindavista,1.0,
+Lomas Estrella,,0.5625,Lomas de Cuautepec | La Villa | La Pastora
+Los Reyes,,0.631578947368421,Los Bordos | Río de los Remedios | Indios Verdes
+Lázaro Cárdenas,,0.5833333333333334,La Cañada | Martín Carrera | Zacatenco
+Martín Carrera,Martín Carrera,1.0,
+Merced,,0.42857142857142855,Guerrero | Misterios | Periférico
+Mexicaltzingo,,0.5,"Hidalgo | Estación Méxicable ""Deportivo"" | México Central Norte"
+Miguel Ángel de Quevedo,,0.47368421052631576,Río de Remedios | Terminal Central de Autobuses del Norte | Lomas de Cuautepec
+Misterios,Misterios,1.0,
+Mixcoac,,0.5714285714285714,Ticomán | Martín Carrera | Tlalpexco
+Mixiuhca,,0.4117647058823529,Terminal Mexibús Mexicable | Martín Carrera | México Central Norte
+Moctezuma,,0.5,Oceanía | Fortuna | Cuitláhuac
+Morelos,Morelos,1.0,
+Múzquiz,,0.3157894736842105,Romero Rubio | Metrobús Linea 4 | Poza Rica
+Nativitas,,0.631578947368421,Lindavista | Buenavista | Fátima
+Nezahualcóyotl,Nezahualcóyotl,1.0,
+Niños Héroes,,0.72,Indios Verdes | Los Bordos | Paradero de Indios Verdes
+Nopalera,,0.5714285714285714,Normal | Santa Clara | Hank González
+Normal,Normal,1.0,
+Norte 45,Norte 45,1.0,
+Obrera,,0.6153846153846154,Potrero | Normal | La Forestal
+Observatorio,,0.5833333333333334,Romero Rubio | Campos Revolución | Misterios
+Oceanía,Oceanía,1.0,
+Olivos,,0.6153846153846154,Morelos | Deportivo | Revolución
+Olímpica,,0.5263157894736842,Politécnico | Colegio Militar | Talismán
+Panteones,,0.5,Potrero | Hank González | Zacatenco
+Pantitlán,,0.5333333333333333,Fátima | Santa Clara | Popotla
+Parque de los Venados,,0.6521739130434783,Paradero de Indios Verdes | Río de los Remedios | León de los Aldama
+Patriotismo,,0.5,Misterios | Deportivo | Fátima
+Periférico Oriente,,0.7142857142857143,Periférico | Metro Politécnico (Poniente) | México Central Norte
+Peñón viejo,,0.4444444444444444,Vallejo | Romero Rubio | Indios Verdes
+Pino Suárez,,0.48,Martín Carrera | Potrero | Deportivo 18 de Marzo
+Plaza Aragón,,0.6666666666666666,Villa de Aragón | Aragón | Santa Clara
+Polanco,,0.6666666666666666,Politécnico | Popotla | Zacatenco
+Politécnico,Politécnico,1.0,
+Popotla,Popotla,1.0,
+Portales,,0.5714285714285714,Normal | Potrero | Popotla
+Potrero,Potrero,1.0,
+Puebla,,0.5333333333333333,Impulsora | Popotla | Consulado
+Refinería,,0.5,Oceanía | Misterios | Revolución
+Revolución,Revolución,1.0,
+Ricardo Flores Magón,,0.55,Carlos Hank González | La Forestal | Martín Carrera
+Romero Rubio,Romero Rubio,1.0,
+Río de los Remedios,Río de los Remedios,1.0,
+Salto del Agua,,0.6428571428571429,Tanque de Agua | León de los Aldama | Garibaldi-Lagunilla
+San Andrés Tomatlán,,0.5333333333333333,"La Forestal | San Isidro | Estación Méxicable ""Fátima"""
+San Antonio,,0.5,San Cosme | San Isidro | Aragón
+San Antonio Abad,,0.4444444444444444,Santa Clara | Estación de autobuses Politécnico-Universidad | Hank González
+San Cosme,San Cosme,1.0,
+San Joaquín,,0.5,San Cosme | San Isidro | Santa Clara
+San Juan de Letrán,,0.5294117647058824,Bosque de Aragón | Tanque de Agua | Villa de Aragón
+San Lázaro,,0.6666666666666666,Santa Clara | San Isidro | La Raza
+San Pedro de los Pinos,,0.6341463414634146,Río de los Remedios | San Felipe de Jesús (León de los Aldama) | Base San Pedro Santa Clara La Presa
+Santa Anita,,0.7272727272727273,Santa Clara | San Isidro | La Pastora
+Santa Marta,,0.8181818181818182,Santa Clara | San Cosme | San Isidro
+Sevilla,,0.6666666666666666,La Villa | Lagunilla | Buenavista
+Tacuba,,0.47058823529411764,Santa Clara | Talismán | Zacatenco
+Tacubaya,,0.5263157894736842,Santa Clara | La Cañada | Tanque de Agua
+Talismán,Talismán,1.0,
+Tasqueña,,0.5454545454545454,Tanque de Agua | Fortuna | Talismán
+Tepalcates,,0.5333333333333333,Ampliación Malacates | Zacatenco | Tlatelolco
+Tepito,Tepito,1.0,
+Terminal Aérea,,0.7692307692307693,Terminal ETT | Terminal Metro Revolucion | Terminal Mexibús Mexicable
+Tezonco,,0.625,Zacatenco | Tlatelolco | Politécnico
+Tezozómoc,,0.42105263157894735,Tlatelolco | Tablas del Pozo | Tepito
+Tlaltenco,,0.7777777777777778,Tlalpexco | Tlatelolco | Zacatenco
+Tlatelolco,Tlatelolco,1.0,
+Tláhuac,,0.8235294117647058,Cuitláhuac | Tlalpexco | Lagunilla
+UAM-Azcapotzalco,,0.48,Zacatenco | CETRAM Politécnico | CETRAM Potrero
+UAM-I,,0.46153846153846156,La Villa | Poza Rica | Eduardo Molina
+Universidad,,0.5,Indios Verdes | San Isidro | Buenavista
+Valle Gómez,Valle Gómez,1.0,
+Vallejo,Vallejo,1.0,
+Velódromo,,0.4444444444444444,Bondojito | Tlatelolco | Los Bordos
+Viaducto,,0.47058823529411764,Zacatenco | Revolución | Cuitláhuac
+Villa de Aragón,Villa de Aragón,1.0,
+Villa de Cortés,,0.6666666666666666,Villa de Aragón | Canal del Norte | Lomas de Cuautepec
+Viveros/Derechos Humanos,,0.46153846153846156,Río de Remedios | Deportivo 18 de Marzo | CETRAM 18 de Marzo
+Xola,,0.5454545454545454,Popotla | Consulado | Normal
+Zapata,,0.625,La Pastora | Zacatenco | Fátima
+Zapotitlán,,0.5882352941176471,Popotla | Fátima | Politécnico
+Zaragoza,,0.7142857142857143,Aragón | Zacatenco | Villa de Aragón
+Zócalo/Tenochtitlan,,0.5,Zacatenco | Autobuses Teotihuacán | Nezahualcóyotl

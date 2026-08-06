@@ -1,0 +1,15 @@
+# Pesos del score compuesto, calibrados a mano para el perfil "cafeteria".
+# El flujo de transporte pesa mas porque el caso de uso es cafe de camino
+# al trabajo.
+#
+# No tienen que sumar 1: como todas las variables ya estan normalizadas a
+# 0-1, lo que importa es la proporcion relativa entre pesos. El score final
+# no esta acotado y no hace falta que lo este, solo se usa para ordenar.
+weights:
+  flujo_transporte: 0.35
+  densidad_pob: 0.15
+  nivel_socioeconomico: 0.15
+  accesibilidad_peatonal: 0.10
+  atractores_denue: 0.10
+  atractores_osm: 0.05
+  competencia: -0.10

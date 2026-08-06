@@ -26,7 +26,13 @@ Las fuentes 2 a 4 del spec (DENUE, OSM, censo AGEB) **no** están en este plan y
 - **Propiedad única de columnas:** cada módulo de `src/rtgam/sources/` es dueño exclusivo de sus columnas. Dos fuentes nunca escriben la misma columna.
 - **Ninguna prueba toca la red.** Todas usan fixtures sintéticos.
 - **Commits sin trailer de coautoría.** No agregar `Co-Authored-By`.
-- **Idioma:** código, nombres de función y docstrings en inglés; mensajes de commit y salida al usuario en español.
+- **Idioma:** identificadores en inglés (nombres de módulo, función, variable,
+  constante y prueba). **Docstrings y comentarios en español**, igual que los
+  mensajes de commit y la salida de los scripts. Es deliberado: el dueño del
+  proyecto es hispanohablante y está usando esto para aprender Python
+  geoespacial, así que la prosa que explica un concepto nuevo (H3, kernel de
+  decaimiento, log1p) vale más en su idioma. El código de todas las tareas de
+  este plan sigue ese patrón.
 
 ## Desviaciones respecto al spec
 
@@ -131,25 +137,45 @@ testpaths = ["tests"]
 
 - [ ] **Step 4: Crear `.gitignore`**
 
+El archivo ya existe con la entrada `.superpowers/`; **conservarla** al escribir el resto:
+
 ```gitignore
 .venv/
 __pycache__/
 *.pyc
 .pytest_cache/
-data/
+data/*
 !data/.gitkeep
 .streamlit/
+.superpowers/
 ```
 
-`data/` se ignora entero: son descargas y derivados, reproducibles desde los scripts.
+`data/*` y no `data/`: con la barra final git excluye el directorio y deja de
+recursar dentro, asi que la negacion `!data/.gitkeep` nunca se evalua y el
+archivo solo entra con `git add -f`. Con el glob la negacion si funciona.
+
+El contenido de `data/` se ignora entero: son descargas y derivados,
+reproducibles desde los scripts.
+`.superpowers/` es scratch del proceso de ejecución, no del proyecto.
 
 - [ ] **Step 5: Crear los archivos del paquete y las carpetas de datos**
 
 ```bash
 mkdir -p src/rtgam/sources scripts app tests config
 mkdir -p data/raw data/interim data/processed
-touch src/rtgam/__init__.py src/rtgam/sources/__init__.py
+touch src/rtgam/sources/__init__.py
 touch data/.gitkeep
+```
+
+Crear `src/rtgam/__init__.py` con la identidad que ambos clientes HTTP comparten:
+
+```python
+"""Analisis de flujo peatonal para ubicacion de cafeteria en Gustavo A. Madero."""
+
+# Nominatim y Overpass rechazan peticiones sin User-Agent identificable. Es
+# politica de uso de ambos, no un detalle opcional: Overpass responde 406 Not
+# Acceptable sin el. Vive aqui y no en cada modulo para no duplicar el literal.
+USER_AGENT = "regional-transit-gam/0.1 (analisis academico de ubicacion)"
 ```
 
 - [ ] **Step 6: Crear el entorno e instalar**
@@ -208,6 +234,18 @@ def test_haversine_known_distance():
     """Un grado de latitud son ~111.2 km en cualquier meridiano."""
     d = haversine_m(19.0, -99.1, 20.0, -99.1)
     assert d == pytest.approx(111_195, rel=0.001)
+
+
+def test_haversine_applies_latitude_cosine():
+    """Un grado de longitud se encoge con el coseno de la latitud.
+
+    Sin esta prueba, una haversine a la que le falte el termino
+    cos(lat1)*cos(lat2) pasa todas las demas: las otras comparan puntos con
+    la misma longitud, donde ese termino se multiplica por sin(0) y desaparece.
+    A lat 19.5 la diferencia es 104,817 m contra 111,195 m — 6%.
+    """
+    d = haversine_m(19.5, -99.5, 19.5, -98.5)
+    assert d == pytest.approx(104_817, rel=0.001)
 
 
 def test_haversine_broadcasts():
@@ -290,8 +328,12 @@ def hexes_for_polygon(polygon, resolution: int = H3_RESOLUTION) -> set[str]:
 
     `polygon` es cualquier objeto con __geo_interface__ (shapely sirve).
     h3.geo_to_cells respeta la convencion GeoJSON de lon/lat.
+
+    El set() no es decorativo: h3 4.5.0 devuelve una list, y el contrato de
+    esta funcion es un set porque quien la consume espera unicidad garantizada
+    y operadores de conjunto.
     """
-    return h3.geo_to_cells(polygon, resolution)
+    return set(h3.geo_to_cells(polygon, resolution))
 
 
 def hex_centroids(hexes: Iterable[str]) -> pd.DataFrame:
@@ -310,7 +352,7 @@ def hex_centroids(hexes: Iterable[str]) -> pd.DataFrame:
 uv run pytest tests/test_geo.py -v
 ```
 
-Esperado: PASS, 5 pruebas.
+Esperado: PASS, 6 pruebas.
 
 - [ ] **Step 5: Commit**
 
@@ -335,12 +377,18 @@ git commit -m "feat: grid H3 y distancia haversine"
 
 - [ ] **Step 1: Escribir las pruebas que fallan**
 
-Agregar a `tests/test_geo.py`:
+Agregar a `tests/test_geo.py`. Los imports van **fusionados en el bloque de
+arriba del archivo**, no repetidos a media altura: `import pandas as pd` se
+suma a los imports existentes, y `DECAY_CUTOFF_M, DECAY_TAU_M,
+accumulate_decay` se agregan al `from rtgam.geo import ...` que ya está.
 
 ```python
-import pandas as pd
-
-from rtgam.geo import DECAY_CUTOFF_M, DECAY_TAU_M, accumulate_decay
+# --- va en el bloque de imports de arriba, no aqui ---
+# import pandas as pd
+# from rtgam.geo import (
+#     DECAY_CUTOFF_M, DECAY_TAU_M, accumulate_decay,
+#     haversine_m, hex_centroids, hexes_for_polygon,
+# )
 
 
 def _centroid_at(lat, lon, hex_id="h1"):
@@ -379,6 +427,21 @@ def test_accumulates_multiple_points():
     )
     out = accumulate_decay(centroids, points, "afluencia")
     assert out["h1"] == pytest.approx(1500.0, rel=1e-6)
+
+
+def test_nan_value_raises_instead_of_poisoning_every_hexagon():
+    """Un NaN no ensucia un hexagono: los ensucia todos.
+
+    El producto punto hace 0.0 * NaN = NaN, asi que un hexagono fuera del
+    corte de 800 m tambien sale NaN. Verificado: con una estacion en NaN, un
+    hexagono a 90 km quedaba NaN. Por eso se falla ruidoso en vez de repartir.
+    """
+    centroids = _centroid_at(19.5, -99.1)
+    points = pd.DataFrame(
+        {"lat": [19.5, 19.51], "lon": [-99.1, -99.1], "afluencia": [1000.0, np.nan]}
+    )
+    with pytest.raises(ValueError, match="NaN"):
+        accumulate_decay(centroids, points, "afluencia")
 
 
 def test_empty_points_returns_zeros_not_error():
@@ -445,6 +508,18 @@ def accumulate_decay(
     if len(points) == 0:
         return pd.Series(0.0, index=centroids.index)
 
+    # Un solo NaN aqui no ensucia un hexagono: los ensucia TODOS. El producto
+    # punto multiplica cada peso por cada valor, y 0.0 * NaN sigue siendo NaN,
+    # asi que hasta un hexagono a 90 km, muy fuera del corte, sale NaN. Falla
+    # ruidoso: un NaN en la afluencia es un bug de datos que hay que ver.
+    missing = int(points[value_col].isna().sum())
+    if missing:
+        raise ValueError(
+            f"{value_col} trae {missing} valores NaN. El producto punto los "
+            f"propagaria a los {len(centroids)} hexagonos, no solo a los "
+            f"cercanos. Limpia la fuente antes de repartir."
+        )
+
     distances = haversine_m(
         centroids["lat"].to_numpy()[:, None],
         centroids["lon"].to_numpy()[:, None],
@@ -462,7 +537,7 @@ def accumulate_decay(
 uv run pytest tests/test_geo.py -v
 ```
 
-Esperado: PASS, 12 pruebas (las 5 de la Tarea 2 más 7 nuevas).
+Esperado: PASS, 14 pruebas (las 6 de la Tarea 2 más 8 nuevas).
 
 - [ ] **Step 5: Commit**
 
@@ -602,7 +677,7 @@ def log1p_minmax(s: pd.Series) -> pd.Series:
 uv run pytest tests/test_normalize.py -v
 ```
 
-Esperado: PASS, 8 pruebas.
+Esperado: PASS, 13 pruebas.
 
 - [ ] **Step 5: Commit**
 
@@ -794,7 +869,7 @@ Esperado: PASS, 7 pruebas.
 uv run pytest -v
 ```
 
-Esperado: PASS, 29 pruebas (2 de entorno + 12 de geo + 8 de normalize + 7 de score).
+Esperado: PASS, 30 pruebas (2 de entorno + 13 de geo + 8 de normalize + 7 de score).
 
 - [ ] **Step 7: Commit**
 
@@ -901,12 +976,10 @@ import requests
 from shapely.geometry import shape
 from shapely.geometry.base import BaseGeometry
 
+from rtgam import USER_AGENT
+
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 GAM_NOMINATIM_QUERY = "Gustavo A. Madero, Ciudad de Mexico, Mexico"
-
-# Nominatim rechaza peticiones sin User-Agent identificable. Es su politica
-# de uso, no un detalle opcional.
-USER_AGENT = "regional-transit-gam/0.1 (analisis academico de ubicacion)"
 
 
 def polygon_from_nominatim_geojson(payload: dict) -> BaseGeometry:
@@ -928,27 +1001,41 @@ def fetch_gam_polygon(cache_path: Path, force: bool = False) -> BaseGeometry:
     """Descarga el poligono de GAM, con cache en disco.
 
     Si `cache_path` existe y `force` es falso, no toca la red.
+
+    El orden importa: se valida ANTES de escribir la cache. Al reves, una
+    respuesta 200 con geometria inservible quedaria persistida y envenenaria
+    todas las corridas siguientes, que releerian el mismo payload malo y
+    fallarian igual sin explicar por que.
     """
     if cache_path.exists() and not force:
-        payload = json.loads(cache_path.read_text(encoding="utf-8"))
-    else:
-        response = requests.get(
-            NOMINATIM_URL,
-            params={
-                "q": GAM_NOMINATIM_QUERY,
-                "format": "geojson",
-                "polygon_geojson": 1,
-                "limit": 1,
-            },
-            headers={"User-Agent": USER_AGENT},
-            timeout=60,
-        )
-        response.raise_for_status()
-        payload = response.json()
-        cache_path.parent.mkdir(parents=True, exist_ok=True)
-        cache_path.write_text(json.dumps(payload), encoding="utf-8")
+        try:
+            payload = json.loads(cache_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as error:
+            raise ValueError(
+                f"La cache {cache_path} esta corrupta o truncada. "
+                f"Borrala o corre con --force para volver a descargar. ({error})"
+            ) from error
+        return polygon_from_nominatim_geojson(payload)
 
-    return polygon_from_nominatim_geojson(payload)
+    response = requests.get(
+        NOMINATIM_URL,
+        params={
+            "q": GAM_NOMINATIM_QUERY,
+            "format": "geojson",
+            "polygon_geojson": 1,
+            "limit": 1,
+        },
+        headers={"User-Agent": USER_AGENT},
+        timeout=60,
+    )
+    response.raise_for_status()
+    payload = response.json()
+
+    polygon = polygon_from_nominatim_geojson(payload)
+
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    cache_path.write_text(json.dumps(payload), encoding="utf-8")
+    return polygon
 ```
 
 - [ ] **Step 4: Correr las pruebas y verificar que pasan**
@@ -971,6 +1058,7 @@ Uso:
 """
 
 import argparse
+import math
 from pathlib import Path
 
 from rtgam.boundary import fetch_gam_polygon
@@ -979,6 +1067,9 @@ from rtgam.geo import H3_RESOLUTION, hex_centroids, hexes_for_polygon
 ROOT = Path(__file__).resolve().parents[1]
 RAW_BOUNDARY = ROOT / "data" / "raw" / "gam_boundary.geojson"
 OUTPUT = ROOT / "data" / "processed" / "gam_hexes.parquet"
+
+# Area media de una celda H3 resolucion 9, en km2.
+H3_RES9_CELL_KM2 = 0.105
 
 
 def main() -> None:
@@ -994,9 +1085,20 @@ def main() -> None:
     centroids.to_parquet(OUTPUT)
 
     minx, miny, maxx, maxy = polygon.bounds
-    print(f"Poligono GAM: {polygon.geom_type}, area aprox {polygon.area * 111**2:.1f} km2")
+    # Un grado de latitud son ~111 km, pero uno de longitud se encoge con el
+    # coseno de la latitud: a 19.5 grados vale ~104.6 km, no 111.
+    lat_mid = math.radians((miny + maxy) / 2)
+    area_km2 = polygon.area * 111.0 * (111.0 * math.cos(lat_mid))
+    print(f"Poligono GAM: {polygon.geom_type}, area aprox {area_km2:.1f} km2")
     print(f"Bounding box: lon [{minx:.4f}, {maxx:.4f}]  lat [{miny:.4f}, {maxy:.4f}]")
+    # h3.geo_to_cells usa contencion por centro: una celda del borde cuyo
+    # centro cae fuera del poligono se descarta. Por eso los hexagonos cubren
+    # menos area que el poligono, y conviene imprimir ambas cifras.
+    covered_km2 = len(centroids) * H3_RES9_CELL_KM2
     print(f"Hexagonos H3 res {H3_RESOLUTION}: {len(centroids)}")
+    print(f"Area cubierta por hexagonos: {covered_km2:.1f} km2 "
+          f"({covered_km2 / area_km2 * 100:.0f}% del poligono; el resto son "
+          f"celdas del borde descartadas por contencion por centro)")
     print(f"Escrito: {OUTPUT}")
 ```
 
@@ -1044,9 +1146,17 @@ git commit -m "feat: grid H3 de GAM desde el limite de OpenStreetMap"
 `tests/test_transporte_stations.py`:
 
 ```python
-import pytest
+import json
+import time
 
-from rtgam.sources.transporte import normalize_name, stations_from_overpass
+import pytest
+import requests
+
+from rtgam.sources.transporte import (
+    fetch_stations,
+    normalize_name,
+    stations_from_overpass,
+)
 
 
 def test_normalize_strips_accents_and_case():
@@ -1116,6 +1226,111 @@ def test_empty_payload_returns_empty_frame_with_columns():
     df = stations_from_overpass({"elements": []})
     assert len(df) == 0
     assert list(df.columns) == ["osm_name", "lat", "lon"]
+
+
+BBOX = (19.4, -99.2, 19.6, -99.0)
+
+
+def test_fetch_stations_uses_cache_without_touching_network(tmp_path, monkeypatch):
+    cache = tmp_path / "osm_stations.json"
+    cache.write_text(
+        json.dumps(
+            {"elements": [
+                {"type": "node", "id": 1, "lat": 19.5, "lon": -99.1,
+                 "tags": {"name": "Potrero"}}
+            ]}
+        ),
+        encoding="utf-8",
+    )
+
+    def explode(*args, **kwargs):
+        raise AssertionError("no debe tocar la red habiendo cache")
+
+    monkeypatch.setattr(requests, "post", explode)
+
+    df = fetch_stations(BBOX, cache)
+    assert len(df) == 1
+    assert df.iloc[0]["osm_name"] == "Potrero"
+
+
+def test_fetch_stations_corrupt_cache_names_file_and_remedy(tmp_path):
+    cache = tmp_path / "osm_stations.json"
+    cache.write_text("no soy json", encoding="utf-8")
+    with pytest.raises(ValueError, match="corrupta o truncada"):
+        fetch_stations(BBOX, cache)
+
+
+def test_fetch_stations_raises_instead_of_returning_none(tmp_path, monkeypatch):
+    """Agotar los reintentos debe lanzar, no devolver None.
+
+    Task 8 espera un DataFrame; un None ahi reventaria mucho mas lejos del
+    origen real del problema.
+    """
+    cache = tmp_path / "osm_stations.json"
+    calls = []
+
+    def always_fail(*args, **kwargs):
+        calls.append(1)
+        raise requests.ConnectionError("sin red")
+
+    monkeypatch.setattr(requests, "post", always_fail)
+    monkeypatch.setattr(time, "sleep", lambda seconds: None)
+
+    with pytest.raises(RuntimeError, match="3 intentos"):
+        fetch_stations(BBOX, cache)
+    assert len(calls) == 3
+    assert not cache.exists(), "sin respuesta valida no debe quedar cache escrita"
+
+
+def test_fetch_stations_sends_a_user_agent(tmp_path, monkeypatch):
+    """Overpass responde 406 a las peticiones sin User-Agent identificable.
+
+    Verificado contra el servidor real: sin el header devuelve 406 Not
+    Acceptable; con el, 200. Es su politica de uso, no un detalle opcional.
+    """
+    cache = tmp_path / "osm_stations.json"
+    seen = {}
+
+    class Ok:
+        status_code = 200
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"elements": []}
+
+    def capture(*args, **kwargs):
+        seen.update(kwargs.get("headers") or {})
+        return Ok()
+
+    monkeypatch.setattr(requests, "post", capture)
+    fetch_stations(BBOX, cache)
+    assert "User-Agent" in seen
+    assert seen["User-Agent"], "el User-Agent no puede ir vacio"
+
+
+def test_fetch_stations_does_not_retry_a_client_error(tmp_path, monkeypatch):
+    """Un 400 es consulta malformada: fallar rapido, no machacar el servidor."""
+    cache = tmp_path / "osm_stations.json"
+    calls = []
+
+    class BadRequest:
+        status_code = 400
+
+        def raise_for_status(self):
+            raise requests.HTTPError("400 Bad Request", response=self)
+
+    def one_shot(*args, **kwargs):
+        calls.append(1)
+        return BadRequest()
+
+    monkeypatch.setattr(requests, "post", one_shot)
+    monkeypatch.setattr(time, "sleep", lambda seconds: None)
+
+    with pytest.raises(requests.HTTPError):
+        fetch_stations(BBOX, cache)
+    assert len(calls) == 1, "un 400 no se reintenta"
 ```
 
 - [ ] **Step 2: Correr las pruebas y verificar que fallan**
@@ -1166,6 +1381,25 @@ def normalize_name(name: str) -> str:
     lowered = ascii_only.lower()
     no_punctuation = re.sub(r"[^a-z0-9 ]", " ", lowered)
     return re.sub(r"\s+", " ", no_punctuation).strip()
+
+
+def fix_mojibake(name: str) -> str:
+    """Revierte el doble encodeo UTF-8 del CSV de afluencia del Metro.
+
+    El portal publica el archivo con los bytes UTF-8 interpretados como
+    latin-1 y vueltos a codificar, asi que "Aragon" con acento llega escrito
+    "AragA-3n". Son 52 de 163 estaciones, el 32 por ciento.
+
+    Sin revertirlo el join muere en silencio: normalize_name("AragA-3n") da
+    "araga3n" y OSM dice "aragon". No falla nada, simplemente desaparece un
+    tercio de las estaciones del mapa.
+
+    Si la cadena ya esta bien, se devuelve intacta.
+    """
+    try:
+        return name.encode("latin-1").decode("utf-8")
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        return name
 
 
 def stations_from_overpass(payload: dict) -> pd.DataFrame:
@@ -1224,9 +1458,17 @@ def fetch_stations(
 
     Overpass es un servidor gratuito y devuelve 429 bajo carga, por eso el
     backoff exponencial.
+    Igual que en boundary.py, la cache se escribe DESPUES de parsear, nunca
+    antes: un payload inservible persistido se releeria en cada corrida.
     """
     if cache_path.exists() and not force:
-        payload = json.loads(cache_path.read_text(encoding="utf-8"))
+        try:
+            payload = json.loads(cache_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as error:
+            raise ValueError(
+                f"La cache {cache_path} esta corrupta o truncada. "
+                f"Borrala o corre con --force para volver a descargar. ({error})"
+            ) from error
         return stations_from_overpass(payload)
 
     query = build_overpass_query(bbox)
@@ -1234,19 +1476,32 @@ def fetch_stations(
     for attempt in range(OVERPASS_RETRIES):
         try:
             response = requests.post(
-                OVERPASS_URL, data={"data": query}, timeout=OVERPASS_TIMEOUT_S
+                OVERPASS_URL,
+                data={"data": query},
+                headers={"User-Agent": USER_AGENT},
+                timeout=OVERPASS_TIMEOUT_S,
             )
             response.raise_for_status()
             payload = response.json()
+            stations = stations_from_overpass(payload)
             cache_path.parent.mkdir(parents=True, exist_ok=True)
             cache_path.write_text(json.dumps(payload), encoding="utf-8")
-            return stations_from_overpass(payload)
+            return stations
+        except requests.HTTPError as error:
+            # Un 4xx que no sea 429 es un bug de nuestra consulta, no una falla
+            # transitoria. Reintentarlo tres veces solo castiga a un servidor
+            # gratuito y retrasa el error real quince segundos.
+            status = error.response.status_code if error.response is not None else None
+            if status is not None and 400 <= status < 500 and status != 429:
+                raise
+            last_error = error
         except (requests.RequestException, ValueError) as error:
             last_error = error
-            if attempt < OVERPASS_RETRIES - 1:
-                backoff = 5 * (2**attempt)
-                print(f"Overpass fallo ({error}); reintento en {backoff}s")
-                time.sleep(backoff)
+
+        if attempt < OVERPASS_RETRIES - 1:
+            backoff = 5 * (2**attempt)
+            print(f"Overpass fallo ({last_error}); reintento en {backoff}s")
+            time.sleep(backoff)
 
     raise RuntimeError(f"Overpass fallo tras {OVERPASS_RETRIES} intentos") from last_error
 ```
@@ -1316,10 +1571,31 @@ import pandas as pd
 import pytest
 
 from rtgam.sources.transporte import (
+    fix_mojibake,
+    normalize_name,
     propose_name_map,
     to_hex_features,
     weekday_mean_by_station,
 )
+
+
+def test_weekday_mean_sums_lines_before_averaging_days():
+    """Una estacion de transbordo aparece una vez por linea el mismo dia.
+
+    Promediar directo la parte a la mitad. Medido sobre los datos reales:
+    Martin Carrera (lineas 4 y 6) daba 24,305 en vez de 48,609.
+    """
+    rows = []
+    for fecha in ["2025-01-06", "2025-01-07"]:
+        rows.append({"fecha": fecha, "estacion": "Martín Carrera", "linea": "Linea 4", "afluencia": 300})
+        rows.append({"fecha": fecha, "estacion": "Martín Carrera", "linea": "Linea 6", "afluencia": 200})
+        rows.append({"fecha": fecha, "estacion": "Potrero", "linea": "Linea 3", "afluencia": 100})
+    out = weekday_mean_by_station(
+        pd.DataFrame(rows), year=2025, date_col="fecha",
+        station_col="estacion", value_col="afluencia",
+    ).set_index("afluencia_name")
+    assert out.loc["Martín Carrera", "afluencia_habil"] == pytest.approx(500.0)
+    assert out.loc["Potrero", "afluencia_habil"] == pytest.approx(100.0)
 
 
 @pytest.fixture
@@ -1332,6 +1608,24 @@ def daily():
         rows.append({"fecha": date.strftime("%Y-%m-%d"), "estacion": "Potrero", "afluencia": 1000 if weekday else 200})
         rows.append({"fecha": date.strftime("%Y-%m-%d"), "estacion": "La Raza", "afluencia": 500 if weekday else 100})
     return pd.DataFrame(rows)
+
+
+def test_fix_mojibake_restores_accents():
+    assert fix_mojibake("Arag\u00c3\u00b3n") == "Arag\u00f3n"
+    assert fix_mojibake("Instituto del Petr\u00c3\u00b3leo") == "Instituto del Petr\u00f3leo"
+
+
+def test_fix_mojibake_leaves_clean_names_alone():
+    """Idempotente: un nombre ya correcto no se debe estropear."""
+    assert fix_mojibake("Potrero") == "Potrero"
+    assert fix_mojibake("La Raza") == "La Raza"
+
+
+def test_mojibake_breaks_the_join_without_the_fix():
+    """La razon de existir de fix_mojibake, fijada como prueba."""
+    roto = "Arag\u00c3\u00b3n"
+    assert normalize_name(roto) != normalize_name("Arag\u00f3n")
+    assert normalize_name(fix_mojibake(roto)) == normalize_name("Arag\u00f3n")
 
 
 def test_weekday_mean_excludes_weekend(daily):
@@ -1365,11 +1659,41 @@ def test_name_map_matches_across_accents():
     assert out.iloc[0]["osm_name"] == "Instituto del Petróleo"
 
 
-def test_name_map_matches_partial_name():
-    """El caso real del spec: el CSV dice una cosa y OSM otra."""
+def test_name_map_does_not_guess_partial_names():
+    """Un nombre que no es identico queda para revision, con candidatos.
+
+    Medido contra los datos reales: 23 de 25 estaciones clave de GAM cruzan
+    exacto, y los unicos cruces que aportaba la heuristica eran falsos.
+    """
     out = propose_name_map(["Deportivo 18 de Marzo"], ["18 de Marzo"])
-    assert out.iloc[0]["osm_name"] == "18 de Marzo"
-    assert out.iloc[0]["similarity"] > 0.6
+    assert out.iloc[0]["osm_name"] is None
+    assert "18 de Marzo" in out.iloc[0]["candidatos"]
+
+
+def test_name_map_rejects_unrelated_stations():
+    """El bug que motivo esta regla, fijado como prueba.
+
+    Con el cutoff viejo de 0.6, Obrera (linea 8, Cuauhtemoc) cruzaba con
+    Potrero (GAM) y Zapata (Benito Juarez) con La Pastora (GAM). La afluencia
+    de media ciudad aterrizaba en hexagonos de GAM sin que nada fallara.
+    """
+    out = propose_name_map(["Obrera", "Zapata"], ["Potrero", "La Pastora"])
+    assert out.set_index("afluencia_name").loc["Obrera", "osm_name"] is None
+    assert out.set_index("afluencia_name").loc["Zapata", "osm_name"] is None
+
+
+def test_name_map_exact_wins_over_similar_neighbours():
+    """Aragon, Bosque de Aragon y Villa de Aragon son tres estaciones reales."""
+    osm = ["Aragón", "Bosque de Aragón", "Villa de Aragón"]
+    out = propose_name_map(["Aragón"], osm).set_index("afluencia_name")
+    assert out.loc["Aragón", "osm_name"] == "Aragón"
+    assert out.loc["Aragón", "similarity"] == 1.0
+
+
+def test_name_map_does_not_match_substring_of_another_station():
+    """"tlahuac" es subcadena de "cuitlahuac" por pura coincidencia."""
+    out = propose_name_map(["Tláhuac"], ["Cuitláhuac"])
+    assert out.iloc[0]["osm_name"] is None
 
 
 def test_name_map_leaves_unmatched_as_none():
@@ -1407,12 +1731,29 @@ Esperado: FAIL con `ImportError: cannot import name 'weekday_mean_by_station'`.
 
 - [ ] **Step 4: Implementar la parte de afluencia**
 
-Agregar al final de `src/rtgam/sources/transporte.py`:
+Primero, mover los imports al bloque de arriba del archivo — Python permite
+importar a media altura, pero dispersar imports esconde las dependencias del
+módulo. Agregar `import difflib` al bloque de imports existente, quedando así:
 
 ```python
 import difflib
+import json
+import re
+import time
+import unicodedata
+from pathlib import Path
 
-NAME_MATCH_CUTOFF = 0.6
+import pandas as pd
+import requests
+
+from rtgam import USER_AGENT
+from rtgam.geo import accumulate_decay
+```
+
+Después, agregar al final de `src/rtgam/sources/transporte.py`:
+
+```python
+NAME_MATCH_CUTOFF = 0.85
 
 
 def weekday_mean_by_station(
@@ -1439,7 +1780,16 @@ def weekday_mean_by_station(
     is_weekday = frame[date_col].dt.weekday < 5
     frame = frame[is_target_year & is_weekday]
 
-    grouped = frame.groupby(station_col)[value_col].mean().reset_index()
+    # Primero sumar por (fecha, estacion), DESPUES promediar entre dias.
+    # El CSV del Metro trae una fila por (fecha, linea, estacion), asi que una
+    # estacion de transbordo aparece dos veces el mismo dia. Promediar directo
+    # la parte a la mitad: Martin Carrera (L4+L6) daba 24,305 en vez de 48,609,
+    # igual La Raza, Deportivo 18 de Marzo, Instituto del Petroleo y Consulado.
+    # Justo los nodos de transbordo, que son los de mas peaton y los que mas
+    # importan para ubicar una cafeteria. Para una fuente que ya publica una
+    # fila por estacion por dia, la suma es identidad y no cambia nada.
+    por_dia = frame.groupby([date_col, station_col], as_index=False)[value_col].sum()
+    grouped = por_dia.groupby(station_col)[value_col].mean().reset_index()
     grouped.columns = ["afluencia_name", "afluencia_habil"]
     return grouped
 
@@ -1451,26 +1801,55 @@ def propose_name_map(
 ) -> pd.DataFrame:
     """Propone el cruce entre nombres del CSV de afluencia y nombres de OSM.
 
-    Es una propuesta, no la verdad: la salida se revisa a mano y se corrige
-    antes de usarse. Los nombres sin match quedan con osm_name en None para
-    que salten a la vista.
+    Auto-acepta unicamente la igualdad exacta sobre la forma normalizada, que
+    ya absorbe acentos, guiones y mayusculas. Lo demas se deja sin cruzar, con
+    la columna `candidatos` llena para que un humano elija.
 
-    Compara sobre la forma normalizada, asi que acentos y guiones no estorban.
+    El umbral difuso se quito a proposito. Con cutoff 0.6 cruzaba "Obrera"
+    (linea 8, Cuauhtemoc) con "Potrero" (GAM) y "Zapata" (Benito Juarez) con
+    "La Pastora" (GAM): afluencia de media ciudad aterrizando en los hexagonos
+    de los que sale la conclusion del estudio, sin que fallara nada. Y subir
+    el umbral tampoco servia, porque el caso legitimo que motivaba la
+    heuristica puntuaba 0.69, por debajo de varios de esos falsos positivos.
+
+    `similarity` se conserva como dato informativo del mejor candidato, no
+    como criterio de aceptacion.
     """
     normalized_osm = {normalize_name(name): name for name in osm_names}
-    candidates = list(normalized_osm)
 
     rows = []
     for name in sorted(afluencia_names):
         key = normalize_name(name)
-        matches = difflib.get_close_matches(key, candidates, n=1, cutoff=cutoff)
-        if matches:
-            similarity = difflib.SequenceMatcher(None, key, matches[0]).ratio()
-            rows.append((name, normalized_osm[matches[0]], similarity))
-        else:
-            rows.append((name, None, 0.0))
 
-    return pd.DataFrame(rows, columns=["afluencia_name", "osm_name", "similarity"])
+        # Solo la igualdad exacta ya normalizada se auto-acepta.
+        if key in normalized_osm:
+            rows.append((name, normalized_osm[key], 1.0, ""))
+            continue
+
+        # Todo lo demas queda SIN cruzar, con candidatos para que un humano
+        # decida. No es pereza: se midio contra los datos reales y la
+        # adivinanza no aportaba nada bueno. De 25 estaciones clave de GAM,
+        # 23 cruzan exacto. Los unicos cruces que aportaba la heuristica eran
+        # falsos: "Plaza Aragon" (Ecatepec) contra "Aragon" (GAM), "Tlahuac"
+        # contra "Cuitlahuac" porque una es subcadena de la otra a media
+        # palabra, y "Universidad" (terminal de linea 3, en Coyoacan, de las
+        # mas transitadas de la red) contra una estacion de autobuses que si
+        # esta en GAM. Cada uno de esos mete afluencia ajena en el mapa sin
+        # que nada falle.
+        scored = sorted(
+            (
+                (difflib.SequenceMatcher(None, key, osm_key).ratio(), osm)
+                for osm_key, osm in normalized_osm.items()
+            ),
+            reverse=True,
+        )
+        best_score = scored[0][0] if scored else 0.0
+        candidates = " | ".join(osm for _, osm in scored[:3])
+        rows.append((name, None, best_score, candidates))
+
+    return pd.DataFrame(
+        rows, columns=["afluencia_name", "osm_name", "similarity", "candidatos"]
+    )
 
 
 def to_hex_features(gam_hexes: pd.DataFrame, stations: pd.DataFrame) -> pd.DataFrame:
@@ -1481,8 +1860,6 @@ def to_hex_features(gam_hexes: pd.DataFrame, stations: pd.DataFrame) -> pd.DataF
     Devuelve:  DataFrame indexado por hex_id con la unica columna que esta
                fuente posee, flujo_transporte, en valor crudo y sin normalizar.
     """
-    from rtgam.geo import accumulate_decay
-
     flow = accumulate_decay(gam_hexes, stations, value_col="afluencia_habil")
     return pd.DataFrame({"flujo_transporte": flow})
 ```
@@ -1493,7 +1870,7 @@ def to_hex_features(gam_hexes: pd.DataFrame, stations: pd.DataFrame) -> pd.DataF
 uv run pytest tests/test_transporte_afluencia.py -v
 ```
 
-Esperado: PASS, 9 pruebas.
+Esperado: PASS, 15 pruebas.
 
 - [ ] **Step 6: Escribir `scripts/02_transporte.py`**
 
@@ -1518,6 +1895,7 @@ import pandas as pd
 
 from rtgam.sources.transporte import (
     fetch_stations,
+    fix_mojibake,
     propose_name_map,
     to_hex_features,
     weekday_mean_by_station,
@@ -1529,10 +1907,21 @@ STATIONS_CACHE = ROOT / "data" / "raw" / "osm_stations.json"
 NAME_MAP = ROOT / "data" / "interim" / "station_name_map.csv"
 OUTPUT = ROOT / "data" / "processed" / "flujo_transporte.parquet"
 
-# Rellenar con los nombres reales observados en el Step 1 de esta tarea.
+# Nombres verificados contra el CSV real del portal de la CDMX.
 DATE_COL = "fecha"
 STATION_COL = "estacion"
 VALUE_COL = "afluencia"
+
+# LIMITACION CONOCIDA DE LA FUENTE
+# Solo el Metro (STC) publica afluencia por estacion. Metrobus, Cablebus,
+# Tren Ligero y Trolebus publican unicamente totales por linea, asi que no
+# se pueden repartir sobre hexagonos sin inventar el reparto.
+#
+# Consecuencia concreta: el Cablebus Linea 1 corre entero dentro de GAM y
+# sirve a Cuautepec, y aqui aporta cero. El corredor de Cuautepec va a
+# aparecer con menos flujo del que realmente tiene, y cualquier conclusion
+# de ubicacion en esa zona no es confiable mientras no exista una fuente
+# por estacion.
 
 # Buffer de 1 km alrededor de GAM: una estacion justo afuera del limite
 # alimenta hexagonos de GAM de verdad, y filtrarla dejaria el borde
@@ -1561,6 +1950,15 @@ def main() -> None:
     if not csv_paths:
         raise SystemExit("No hay data/raw/afluencia_*.csv. Ver el Step 1 de la Tarea 8.")
     daily = pd.concat([pd.read_csv(path) for path in csv_paths], ignore_index=True)
+    daily[STATION_COL] = daily[STATION_COL].map(fix_mojibake)
+
+    # Reportar fechas ilegibles antes de filtrar. Sobre 1.17 millones de filas,
+    # un cambio de formato en el portal se comeria parte de la muestra sin que
+    # nada avisara.
+    unparsed = int(pd.to_datetime(daily[DATE_COL], errors="coerce").isna().sum())
+    if unparsed:
+        print(f"AVISO: {unparsed} filas con fecha ilegible, excluidas "
+              f"({unparsed / len(daily) * 100:.2f}% del total)")
 
     afluencia = weekday_mean_by_station(
         daily, year=args.year, date_col=DATE_COL, station_col=STATION_COL, value_col=VALUE_COL
@@ -1693,6 +2091,30 @@ def test_merge_keeps_all_hexes_filling_missing_with_zero(hexes):
     assert not out.isna().any().any()
 
 
+def test_merge_raises_on_nan_from_a_source(hexes):
+    """Un NaN de la fuente no es un hueco del join.
+
+    Rellenar los dos con cero esconde un bug de datos detras de un valor que
+    parece legitimo, y ese cero entra al score sin que nada avise.
+    """
+    import numpy as np
+
+    sucia = pd.DataFrame({"flujo_transporte": [10.0, np.nan]}, index=hexes.index)
+    with pytest.raises(ValueError, match="NaN"):
+        merge_features(hexes, [sucia])
+
+
+def test_merge_ignores_hexes_outside_the_grid(hexes):
+    """Una fuente con hexagonos ajenos no debe agrandar la malla."""
+    ajena = pd.DataFrame(
+        {"flujo_transporte": [1.0, 2.0, 99.0]},
+        index=pd.Index(["a", "b", "fuera_de_gam"], name="hex_id"),
+    )
+    out = merge_features(hexes, [ajena])
+    assert len(out) == 2
+    assert "fuera_de_gam" not in out.index
+
+
 def test_merge_with_no_sources_returns_empty_columns(hexes):
     out = merge_features(hexes, [])
     assert len(out) == 2
@@ -1726,8 +2148,22 @@ def merge_features(
     """
     out = pd.DataFrame(index=gam_hexes.index)
     for frame in feature_frames:
-        out = out.join(frame, how="left")
-    return out.fillna(0.0)
+        # Un NaN que trae la fuente NO es lo mismo que un hueco del join, y
+        # rellenar los dos con cero borra la diferencia. Si una fuente cubre
+        # un hexagono y aun asi calculo NaN, eso es un bug de datos, igual que
+        # en accumulate_decay. Se falla ruidoso antes de que el cero mentiroso
+        # entre al score.
+        missing = int(frame.isna().sum().sum())
+        if missing:
+            raise ValueError(
+                f"La fuente con columnas {list(frame.columns)} trae {missing} "
+                "valores NaN en hexagonos que si cubre. Un hueco del join se "
+                "rellena con cero; un NaN de la fuente es un bug de datos."
+            )
+        # reindex con fill_value rellena SOLO las etiquetas que la fuente no
+        # tiene. Los hexagonos que si cubre llegan con su valor tal cual.
+        out = out.join(frame.reindex(gam_hexes.index, fill_value=0.0), how="left")
+    return out
 ```
 
 - [ ] **Step 4: Correr las pruebas y verificar que pasan**
@@ -1736,7 +2172,7 @@ def merge_features(
 uv run pytest tests/test_merge.py -v
 ```
 
-Esperado: PASS, 5 pruebas.
+Esperado: PASS, 6 pruebas.
 
 - [ ] **Step 5: Escribir `scripts/99_score.py`**
 
@@ -1830,7 +2266,7 @@ Esperado: reporta `flujo_transporte` como única variable en el score y las otra
 uv run pytest -v
 ```
 
-Esperado: PASS, 55 pruebas (29 + 4 de boundary + 8 de estaciones + 9 de afluencia + 5 de merge).
+Esperado: PASS, 67 pruebas (30 + 4 de boundary + 13 de estaciones + 15 de afluencia + 5 de merge).
 
 - [ ] **Step 8: Commit**
 
@@ -1957,7 +2393,7 @@ def rescore(scores: pd.DataFrame, weights: dict[str, float]) -> pd.Series:
 uv run pytest tests/test_viz.py -v
 ```
 
-Esperado: PASS, 5 pruebas.
+Esperado: PASS, 6 pruebas.
 
 - [ ] **Step 5: Escribir `app/dashboard.py`**
 
@@ -2085,7 +2521,7 @@ Verificar:
 uv run pytest -v
 ```
 
-Esperado: PASS, 60 pruebas (55 + 5 de viz).
+Esperado: PASS, 75 pruebas (70 + 5 de viz).
 
 - [ ] **Step 9: Commit**
 

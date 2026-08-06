@@ -1,0 +1,31 @@
+[project]
+name = "rtgam"
+version = "0.1.0"
+description = "Analisis de flujo peatonal para ubicacion de cafeteria en Gustavo A. Madero"
+requires-python = ">=3.12"
+dependencies = [
+    "h3>=4.0",
+    "pandas>=2.2",
+    "numpy>=1.26",
+    "shapely>=2.0",
+    "pyarrow>=16.0",
+    "requests>=2.32",
+    "PyYAML>=6.0",
+    "streamlit>=1.49",
+    "folium>=0.17",
+    "streamlit-folium>=0.23",
+    "branca>=0.8.2",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/rtgam"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
