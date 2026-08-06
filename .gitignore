@@ -5,6 +5,7 @@ __pycache__/
 data/*
 !data/.gitkeep
 !data/interim/
+data/interim/*
 !data/interim/station_name_map.csv
 .streamlit/
 .superpowers/
