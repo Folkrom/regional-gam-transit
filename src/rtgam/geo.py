@@ -47,3 +47,40 @@ def hex_centroids(hexes: Iterable[str]) -> pd.DataFrame:
     """
     rows = [(h, *h3.cell_to_latlng(h)) for h in sorted(hexes)]
     return pd.DataFrame(rows, columns=["hex_id", "lat", "lon"]).set_index("hex_id")
+
+
+DECAY_TAU_M = 300.0
+DECAY_CUTOFF_M = 800.0
+
+
+def accumulate_decay(
+    centroids: pd.DataFrame,
+    points: pd.DataFrame,
+    value_col: str,
+    tau: float = DECAY_TAU_M,
+    cutoff: float = DECAY_CUTOFF_M,
+) -> pd.Series:
+    """Suma de los valores de `points` ponderados por exp(-d/tau).
+
+    Los puntos mas alla de `cutoff` metros aportan exactamente cero.
+
+    centroids: indexado por hex_id, columnas lat y lon.
+    points:    columnas lat, lon y `value_col`.
+    Devuelve:  Series de floats alineada con el indice de `centroids`.
+
+    Construye la matriz completa (n_hexagonos, n_puntos). Para GAM son ~900
+    hexagonos por unos miles de puntos como mucho, asi que cabe de sobra en
+    memoria y evita cualquier bucle en Python.
+    """
+    if len(points) == 0:
+        return pd.Series(0.0, index=centroids.index)
+
+    distances = haversine_m(
+        centroids["lat"].to_numpy()[:, None],
+        centroids["lon"].to_numpy()[:, None],
+        points["lat"].to_numpy()[None, :],
+        points["lon"].to_numpy()[None, :],
+    )
+    weights = np.where(distances <= cutoff, np.exp(-distances / tau), 0.0)
+    totals = weights @ points[value_col].to_numpy(dtype=float)
+    return pd.Series(totals, index=centroids.index)

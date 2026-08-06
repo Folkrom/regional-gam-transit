@@ -1,8 +1,16 @@
 import numpy as np
+import pandas as pd
 import pytest
 from shapely.geometry import Polygon
 
-from rtgam.geo import haversine_m, hex_centroids, hexes_for_polygon
+from rtgam.geo import (
+    DECAY_CUTOFF_M,
+    DECAY_TAU_M,
+    accumulate_decay,
+    haversine_m,
+    hex_centroids,
+    hexes_for_polygon,
+)
 
 
 def test_haversine_zero_distance():
@@ -62,3 +70,66 @@ def test_hex_centroids_indexed_and_sorted():
     # Los centroides caen dentro del area de interes.
     assert df["lat"].between(19.49, 19.52).all()
     assert df["lon"].between(-99.16, -99.13).all()
+
+
+def _centroid_at(lat, lon, hex_id="h1"):
+    return pd.DataFrame({"lat": [lat], "lon": [lon]}, index=pd.Index([hex_id], name="hex_id"))
+
+
+def test_decay_at_zero_distance_is_full_value():
+    centroids = _centroid_at(19.5, -99.1)
+    points = pd.DataFrame({"lat": [19.5], "lon": [-99.1], "afluencia": [1000.0]})
+    out = accumulate_decay(centroids, points, "afluencia")
+    assert out["h1"] == pytest.approx(1000.0, rel=1e-6)
+
+
+def test_decay_matches_formula_at_400m():
+    """400 m al norte: peso esperado exp(-400/300) = 0.2636."""
+    centroids = _centroid_at(19.5, -99.1)
+    lat_400m_north = 19.5 + 400.0 / 111_195.0
+    points = pd.DataFrame({"lat": [lat_400m_north], "lon": [-99.1], "afluencia": [1000.0]})
+    out = accumulate_decay(centroids, points, "afluencia")
+    assert out["h1"] == pytest.approx(1000.0 * np.exp(-400.0 / DECAY_TAU_M), rel=0.01)
+
+
+def test_beyond_cutoff_is_exactly_zero():
+    centroids = _centroid_at(19.5, -99.1)
+    lat_1500m_north = 19.5 + 1500.0 / 111_195.0
+    points = pd.DataFrame({"lat": [lat_1500m_north], "lon": [-99.1], "afluencia": [1000.0]})
+    out = accumulate_decay(centroids, points, "afluencia")
+    assert out["h1"] == 0.0
+
+
+def test_accumulates_multiple_points():
+    """Dos estaciones identicas y coincidentes suman el doble."""
+    centroids = _centroid_at(19.5, -99.1)
+    points = pd.DataFrame(
+        {"lat": [19.5, 19.5], "lon": [-99.1, -99.1], "afluencia": [1000.0, 500.0]}
+    )
+    out = accumulate_decay(centroids, points, "afluencia")
+    assert out["h1"] == pytest.approx(1500.0, rel=1e-6)
+
+
+def test_empty_points_returns_zeros_not_error():
+    centroids = _centroid_at(19.5, -99.1)
+    points = pd.DataFrame({"lat": [], "lon": [], "afluencia": []})
+    out = accumulate_decay(centroids, points, "afluencia")
+    assert list(out) == [0.0]
+    assert out.index.tolist() == ["h1"]
+
+
+def test_output_aligned_with_centroid_index():
+    centroids = pd.DataFrame(
+        {"lat": [19.50, 19.60], "lon": [-99.1, -99.1]},
+        index=pd.Index(["a", "b"], name="hex_id"),
+    )
+    points = pd.DataFrame({"lat": [19.50], "lon": [-99.1], "afluencia": [1000.0]})
+    out = accumulate_decay(centroids, points, "afluencia")
+    assert out.index.tolist() == ["a", "b"]
+    assert out["a"] > 0.0
+    assert out["b"] == 0.0  # ~11 km, muy por fuera del corte
+
+
+def test_cutoff_constant_is_800():
+    assert DECAY_CUTOFF_M == 800.0
+    assert DECAY_TAU_M == 300.0
