@@ -52,10 +52,29 @@ def merge_features(
     ausencia de dato aqui significa ausencia del fenomeno (cero estaciones
     cerca, cero competencia), no dato faltante.
 
+    Un NaN que trae la fuente NO es un hueco del join: rellenar los dos con
+    cero borra la diferencia entre "hexagono ausente" y "bug de datos". Si
+    una fuente cubre un hexagono y aun asi calculo NaN, eso es un bug, igual
+    que en accumulate_decay. Se falla ruidoso.
+
     Se descartan lat y lon: la geometria se regenera de hex_id, y guardarla
     en la tabla de features la duplicaria con riesgo de desincronizarse.
     """
     out = pd.DataFrame(index=gam_hexes.index)
     for frame in feature_frames:
-        out = out.join(frame, how="left")
-    return out.fillna(0.0)
+        # Un NaN que trae la fuente NO es lo mismo que un hueco del join, y
+        # rellenar los dos con cero borra la diferencia. Si una fuente cubre
+        # un hexagono y aun asi calculo NaN, eso es un bug de datos, igual que
+        # en accumulate_decay. Se falla ruidoso antes de que el cero mentiroso
+        # entre al score.
+        missing = int(frame.isna().sum().sum())
+        if missing:
+            raise ValueError(
+                f"La fuente con columnas {list(frame.columns)} trae {missing} "
+                "valores NaN en hexagonos que si cubre. Un hueco del join se "
+                "rellena con cero; un NaN de la fuente es un bug de datos."
+            )
+        # reindex con fill_value rellena SOLO las etiquetas que la fuente no
+        # tiene. Los hexagonos que si cubre llegan con su valor tal cual.
+        out = out.join(frame.reindex(gam_hexes.index, fill_value=0.0), how="left")
+    return out
