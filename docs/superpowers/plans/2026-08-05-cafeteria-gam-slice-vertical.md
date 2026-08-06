@@ -335,12 +335,18 @@ git commit -m "feat: grid H3 y distancia haversine"
 
 - [ ] **Step 1: Escribir las pruebas que fallan**
 
-Agregar a `tests/test_geo.py`:
+Agregar a `tests/test_geo.py`. Los imports van **fusionados en el bloque de
+arriba del archivo**, no repetidos a media altura: `import pandas as pd` se
+suma a los imports existentes, y `DECAY_CUTOFF_M, DECAY_TAU_M,
+accumulate_decay` se agregan al `from rtgam.geo import ...` que ya está.
 
 ```python
-import pandas as pd
-
-from rtgam.geo import DECAY_CUTOFF_M, DECAY_TAU_M, accumulate_decay
+# --- va en el bloque de imports de arriba, no aqui ---
+# import pandas as pd
+# from rtgam.geo import (
+#     DECAY_CUTOFF_M, DECAY_TAU_M, accumulate_decay,
+#     haversine_m, hex_centroids, hexes_for_polygon,
+# )
 
 
 def _centroid_at(lat, lon, hex_id="h1"):
@@ -1407,11 +1413,27 @@ Esperado: FAIL con `ImportError: cannot import name 'weekday_mean_by_station'`.
 
 - [ ] **Step 4: Implementar la parte de afluencia**
 
-Agregar al final de `src/rtgam/sources/transporte.py`:
+Primero, mover los imports al bloque de arriba del archivo — Python permite
+importar a media altura, pero dispersar imports esconde las dependencias del
+módulo. Agregar `import difflib` al bloque de imports existente, quedando así:
 
 ```python
 import difflib
+import json
+import re
+import time
+import unicodedata
+from pathlib import Path
 
+import pandas as pd
+import requests
+
+from rtgam.geo import accumulate_decay
+```
+
+Después, agregar al final de `src/rtgam/sources/transporte.py`:
+
+```python
 NAME_MATCH_CUTOFF = 0.6
 
 
@@ -1481,8 +1503,6 @@ def to_hex_features(gam_hexes: pd.DataFrame, stations: pd.DataFrame) -> pd.DataF
     Devuelve:  DataFrame indexado por hex_id con la unica columna que esta
                fuente posee, flujo_transporte, en valor crudo y sin normalizar.
     """
-    from rtgam.geo import accumulate_decay
-
     flow = accumulate_decay(gam_hexes, stations, value_col="afluencia_habil")
     return pd.DataFrame({"flujo_transporte": flow})
 ```
