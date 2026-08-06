@@ -639,7 +639,7 @@ def log1p_minmax(s: pd.Series) -> pd.Series:
 uv run pytest tests/test_normalize.py -v
 ```
 
-Esperado: PASS, 8 pruebas.
+Esperado: PASS, 12 pruebas.
 
 - [ ] **Step 5: Commit**
 
@@ -965,27 +965,41 @@ def fetch_gam_polygon(cache_path: Path, force: bool = False) -> BaseGeometry:
     """Descarga el poligono de GAM, con cache en disco.
 
     Si `cache_path` existe y `force` es falso, no toca la red.
+
+    El orden importa: se valida ANTES de escribir la cache. Al reves, una
+    respuesta 200 con geometria inservible quedaria persistida y envenenaria
+    todas las corridas siguientes, que releerian el mismo payload malo y
+    fallarian igual sin explicar por que.
     """
     if cache_path.exists() and not force:
-        payload = json.loads(cache_path.read_text(encoding="utf-8"))
-    else:
-        response = requests.get(
-            NOMINATIM_URL,
-            params={
-                "q": GAM_NOMINATIM_QUERY,
-                "format": "geojson",
-                "polygon_geojson": 1,
-                "limit": 1,
-            },
-            headers={"User-Agent": USER_AGENT},
-            timeout=60,
-        )
-        response.raise_for_status()
-        payload = response.json()
-        cache_path.parent.mkdir(parents=True, exist_ok=True)
-        cache_path.write_text(json.dumps(payload), encoding="utf-8")
+        try:
+            payload = json.loads(cache_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as error:
+            raise ValueError(
+                f"La cache {cache_path} esta corrupta o truncada. "
+                f"Borrala o corre con --force para volver a descargar. ({error})"
+            ) from error
+        return polygon_from_nominatim_geojson(payload)
 
-    return polygon_from_nominatim_geojson(payload)
+    response = requests.get(
+        NOMINATIM_URL,
+        params={
+            "q": GAM_NOMINATIM_QUERY,
+            "format": "geojson",
+            "polygon_geojson": 1,
+            "limit": 1,
+        },
+        headers={"User-Agent": USER_AGENT},
+        timeout=60,
+    )
+    response.raise_for_status()
+    payload = response.json()
+
+    polygon = polygon_from_nominatim_geojson(payload)
+
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    cache_path.write_text(json.dumps(payload), encoding="utf-8")
+    return polygon
 ```
 
 - [ ] **Step 4: Correr las pruebas y verificar que pasan**
@@ -1008,6 +1022,7 @@ Uso:
 """
 
 import argparse
+import math
 from pathlib import Path
 
 from rtgam.boundary import fetch_gam_polygon
@@ -1016,6 +1031,9 @@ from rtgam.geo import H3_RESOLUTION, hex_centroids, hexes_for_polygon
 ROOT = Path(__file__).resolve().parents[1]
 RAW_BOUNDARY = ROOT / "data" / "raw" / "gam_boundary.geojson"
 OUTPUT = ROOT / "data" / "processed" / "gam_hexes.parquet"
+
+# Area media de una celda H3 resolucion 9, en km2.
+H3_RES9_CELL_KM2 = 0.105
 
 
 def main() -> None:
@@ -1031,9 +1049,20 @@ def main() -> None:
     centroids.to_parquet(OUTPUT)
 
     minx, miny, maxx, maxy = polygon.bounds
-    print(f"Poligono GAM: {polygon.geom_type}, area aprox {polygon.area * 111**2:.1f} km2")
+    # Un grado de latitud son ~111 km, pero uno de longitud se encoge con el
+    # coseno de la latitud: a 19.5 grados vale ~104.6 km, no 111.
+    lat_mid = math.radians((miny + maxy) / 2)
+    area_km2 = polygon.area * 111.0 * (111.0 * math.cos(lat_mid))
+    print(f"Poligono GAM: {polygon.geom_type}, area aprox {area_km2:.1f} km2")
     print(f"Bounding box: lon [{minx:.4f}, {maxx:.4f}]  lat [{miny:.4f}, {maxy:.4f}]")
+    # h3.geo_to_cells usa contencion por centro: una celda del borde cuyo
+    # centro cae fuera del poligono se descarta. Por eso los hexagonos cubren
+    # menos area que el poligono, y conviene imprimir ambas cifras.
+    covered_km2 = len(centroids) * H3_RES9_CELL_KM2
     print(f"Hexagonos H3 res {H3_RESOLUTION}: {len(centroids)}")
+    print(f"Area cubierta por hexagonos: {covered_km2:.1f} km2 "
+          f"({covered_km2 / area_km2 * 100:.0f}% del poligono; el resto son "
+          f"celdas del borde descartadas por contencion por centro)")
     print(f"Escrito: {OUTPUT}")
 ```
 
@@ -1081,9 +1110,17 @@ git commit -m "feat: grid H3 de GAM desde el limite de OpenStreetMap"
 `tests/test_transporte_stations.py`:
 
 ```python
-import pytest
+import json
+import time
 
-from rtgam.sources.transporte import normalize_name, stations_from_overpass
+import pytest
+import requests
+
+from rtgam.sources.transporte import (
+    fetch_stations,
+    normalize_name,
+    stations_from_overpass,
+)
 
 
 def test_normalize_strips_accents_and_case():
@@ -1153,6 +1190,83 @@ def test_empty_payload_returns_empty_frame_with_columns():
     df = stations_from_overpass({"elements": []})
     assert len(df) == 0
     assert list(df.columns) == ["osm_name", "lat", "lon"]
+
+
+BBOX = (19.4, -99.2, 19.6, -99.0)
+
+
+def test_fetch_stations_uses_cache_without_touching_network(tmp_path, monkeypatch):
+    cache = tmp_path / "osm_stations.json"
+    cache.write_text(
+        json.dumps(
+            {"elements": [
+                {"type": "node", "id": 1, "lat": 19.5, "lon": -99.1,
+                 "tags": {"name": "Potrero"}}
+            ]}
+        ),
+        encoding="utf-8",
+    )
+
+    def explode(*args, **kwargs):
+        raise AssertionError("no debe tocar la red habiendo cache")
+
+    monkeypatch.setattr(requests, "post", explode)
+
+    df = fetch_stations(BBOX, cache)
+    assert len(df) == 1
+    assert df.iloc[0]["osm_name"] == "Potrero"
+
+
+def test_fetch_stations_corrupt_cache_names_file_and_remedy(tmp_path):
+    cache = tmp_path / "osm_stations.json"
+    cache.write_text("no soy json", encoding="utf-8")
+    with pytest.raises(ValueError, match="corrupta o truncada"):
+        fetch_stations(BBOX, cache)
+
+
+def test_fetch_stations_raises_instead_of_returning_none(tmp_path, monkeypatch):
+    """Agotar los reintentos debe lanzar, no devolver None.
+
+    Task 8 espera un DataFrame; un None ahi reventaria mucho mas lejos del
+    origen real del problema.
+    """
+    cache = tmp_path / "osm_stations.json"
+    calls = []
+
+    def always_fail(*args, **kwargs):
+        calls.append(1)
+        raise requests.ConnectionError("sin red")
+
+    monkeypatch.setattr(requests, "post", always_fail)
+    monkeypatch.setattr(time, "sleep", lambda seconds: None)
+
+    with pytest.raises(RuntimeError, match="3 intentos"):
+        fetch_stations(BBOX, cache)
+    assert len(calls) == 3
+    assert not cache.exists(), "sin respuesta valida no debe quedar cache escrita"
+
+
+def test_fetch_stations_does_not_retry_a_client_error(tmp_path, monkeypatch):
+    """Un 400 es consulta malformada: fallar rapido, no machacar el servidor."""
+    cache = tmp_path / "osm_stations.json"
+    calls = []
+
+    class BadRequest:
+        status_code = 400
+
+        def raise_for_status(self):
+            raise requests.HTTPError("400 Bad Request", response=self)
+
+    def one_shot(*args, **kwargs):
+        calls.append(1)
+        return BadRequest()
+
+    monkeypatch.setattr(requests, "post", one_shot)
+    monkeypatch.setattr(time, "sleep", lambda seconds: None)
+
+    with pytest.raises(requests.HTTPError):
+        fetch_stations(BBOX, cache)
+    assert len(calls) == 1, "un 400 no se reintenta"
 ```
 
 - [ ] **Step 2: Correr las pruebas y verificar que fallan**
@@ -1203,6 +1317,25 @@ def normalize_name(name: str) -> str:
     lowered = ascii_only.lower()
     no_punctuation = re.sub(r"[^a-z0-9 ]", " ", lowered)
     return re.sub(r"\s+", " ", no_punctuation).strip()
+
+
+def fix_mojibake(name: str) -> str:
+    """Revierte el doble encodeo UTF-8 del CSV de afluencia del Metro.
+
+    El portal publica el archivo con los bytes UTF-8 interpretados como
+    latin-1 y vueltos a codificar, asi que "Aragon" con acento llega escrito
+    "AragA-3n". Son 52 de 163 estaciones, el 32 por ciento.
+
+    Sin revertirlo el join muere en silencio: normalize_name("AragA-3n") da
+    "araga3n" y OSM dice "aragon". No falla nada, simplemente desaparece un
+    tercio de las estaciones del mapa.
+
+    Si la cadena ya esta bien, se devuelve intacta.
+    """
+    try:
+        return name.encode("latin-1").decode("utf-8")
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        return name
 
 
 def stations_from_overpass(payload: dict) -> pd.DataFrame:
@@ -1261,9 +1394,17 @@ def fetch_stations(
 
     Overpass es un servidor gratuito y devuelve 429 bajo carga, por eso el
     backoff exponencial.
+    Igual que en boundary.py, la cache se escribe DESPUES de parsear, nunca
+    antes: un payload inservible persistido se releeria en cada corrida.
     """
     if cache_path.exists() and not force:
-        payload = json.loads(cache_path.read_text(encoding="utf-8"))
+        try:
+            payload = json.loads(cache_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as error:
+            raise ValueError(
+                f"La cache {cache_path} esta corrupta o truncada. "
+                f"Borrala o corre con --force para volver a descargar. ({error})"
+            ) from error
         return stations_from_overpass(payload)
 
     query = build_overpass_query(bbox)
@@ -1275,15 +1416,25 @@ def fetch_stations(
             )
             response.raise_for_status()
             payload = response.json()
+            stations = stations_from_overpass(payload)
             cache_path.parent.mkdir(parents=True, exist_ok=True)
             cache_path.write_text(json.dumps(payload), encoding="utf-8")
-            return stations_from_overpass(payload)
+            return stations
+        except requests.HTTPError as error:
+            # Un 4xx que no sea 429 es un bug de nuestra consulta, no una falla
+            # transitoria. Reintentarlo tres veces solo castiga a un servidor
+            # gratuito y retrasa el error real quince segundos.
+            status = error.response.status_code if error.response is not None else None
+            if status is not None and 400 <= status < 500 and status != 429:
+                raise
+            last_error = error
         except (requests.RequestException, ValueError) as error:
             last_error = error
-            if attempt < OVERPASS_RETRIES - 1:
-                backoff = 5 * (2**attempt)
-                print(f"Overpass fallo ({error}); reintento en {backoff}s")
-                time.sleep(backoff)
+
+        if attempt < OVERPASS_RETRIES - 1:
+            backoff = 5 * (2**attempt)
+            print(f"Overpass fallo ({last_error}); reintento en {backoff}s")
+            time.sleep(backoff)
 
     raise RuntimeError(f"Overpass fallo tras {OVERPASS_RETRIES} intentos") from last_error
 ```
@@ -1353,6 +1504,8 @@ import pandas as pd
 import pytest
 
 from rtgam.sources.transporte import (
+    fix_mojibake,
+    normalize_name,
     propose_name_map,
     to_hex_features,
     weekday_mean_by_station,
@@ -1369,6 +1522,24 @@ def daily():
         rows.append({"fecha": date.strftime("%Y-%m-%d"), "estacion": "Potrero", "afluencia": 1000 if weekday else 200})
         rows.append({"fecha": date.strftime("%Y-%m-%d"), "estacion": "La Raza", "afluencia": 500 if weekday else 100})
     return pd.DataFrame(rows)
+
+
+def test_fix_mojibake_restores_accents():
+    assert fix_mojibake("Arag\u00c3\u00b3n") == "Arag\u00f3n"
+    assert fix_mojibake("Instituto del Petr\u00c3\u00b3leo") == "Instituto del Petr\u00f3leo"
+
+
+def test_fix_mojibake_leaves_clean_names_alone():
+    """Idempotente: un nombre ya correcto no se debe estropear."""
+    assert fix_mojibake("Potrero") == "Potrero"
+    assert fix_mojibake("La Raza") == "La Raza"
+
+
+def test_mojibake_breaks_the_join_without_the_fix():
+    """La razon de existir de fix_mojibake, fijada como prueba."""
+    roto = "Arag\u00c3\u00b3n"
+    assert normalize_name(roto) != normalize_name("Arag\u00f3n")
+    assert normalize_name(fix_mojibake(roto)) == normalize_name("Arag\u00f3n")
 
 
 def test_weekday_mean_excludes_weekend(daily):
@@ -1544,7 +1715,7 @@ def to_hex_features(gam_hexes: pd.DataFrame, stations: pd.DataFrame) -> pd.DataF
 uv run pytest tests/test_transporte_afluencia.py -v
 ```
 
-Esperado: PASS, 9 pruebas.
+Esperado: PASS, 12 pruebas.
 
 - [ ] **Step 6: Escribir `scripts/02_transporte.py`**
 
@@ -1569,6 +1740,7 @@ import pandas as pd
 
 from rtgam.sources.transporte import (
     fetch_stations,
+    fix_mojibake,
     propose_name_map,
     to_hex_features,
     weekday_mean_by_station,
@@ -1580,10 +1752,21 @@ STATIONS_CACHE = ROOT / "data" / "raw" / "osm_stations.json"
 NAME_MAP = ROOT / "data" / "interim" / "station_name_map.csv"
 OUTPUT = ROOT / "data" / "processed" / "flujo_transporte.parquet"
 
-# Rellenar con los nombres reales observados en el Step 1 de esta tarea.
+# Nombres verificados contra el CSV real del portal de la CDMX.
 DATE_COL = "fecha"
 STATION_COL = "estacion"
 VALUE_COL = "afluencia"
+
+# LIMITACION CONOCIDA DE LA FUENTE
+# Solo el Metro (STC) publica afluencia por estacion. Metrobus, Cablebus,
+# Tren Ligero y Trolebus publican unicamente totales por linea, asi que no
+# se pueden repartir sobre hexagonos sin inventar el reparto.
+#
+# Consecuencia concreta: el Cablebus Linea 1 corre entero dentro de GAM y
+# sirve a Cuautepec, y aqui aporta cero. El corredor de Cuautepec va a
+# aparecer con menos flujo del que realmente tiene, y cualquier conclusion
+# de ubicacion en esa zona no es confiable mientras no exista una fuente
+# por estacion.
 
 # Buffer de 1 km alrededor de GAM: una estacion justo afuera del limite
 # alimenta hexagonos de GAM de verdad, y filtrarla dejaria el borde
@@ -1612,6 +1795,7 @@ def main() -> None:
     if not csv_paths:
         raise SystemExit("No hay data/raw/afluencia_*.csv. Ver el Step 1 de la Tarea 8.")
     daily = pd.concat([pd.read_csv(path) for path in csv_paths], ignore_index=True)
+    daily[STATION_COL] = daily[STATION_COL].map(fix_mojibake)
 
     afluencia = weekday_mean_by_station(
         daily, year=args.year, date_col=DATE_COL, station_col=STATION_COL, value_col=VALUE_COL
@@ -1881,7 +2065,7 @@ Esperado: reporta `flujo_transporte` como única variable en el score y las otra
 uv run pytest -v
 ```
 
-Esperado: PASS, 56 pruebas (30 + 4 de boundary + 8 de estaciones + 9 de afluencia + 5 de merge).
+Esperado: PASS, 63 pruebas (30 + 4 de boundary + 12 de estaciones + 12 de afluencia + 5 de merge).
 
 - [ ] **Step 8: Commit**
 
@@ -2136,7 +2320,7 @@ Verificar:
 uv run pytest -v
 ```
 
-Esperado: PASS, 61 pruebas (56 + 5 de viz).
+Esperado: PASS, 68 pruebas (63 + 5 de viz).
 
 - [ ] **Step 9: Commit**
 
