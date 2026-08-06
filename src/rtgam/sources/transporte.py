@@ -160,9 +160,6 @@ def fix_mojibake(name: str) -> str:
         return name
 
 
-NAME_MATCH_CUTOFF = 0.85
-
-
 def weekday_mean_by_station(
     daily: pd.DataFrame,
     year: int,
@@ -195,31 +192,22 @@ def weekday_mean_by_station(
 def propose_name_map(
     afluencia_names,
     osm_names,
-    cutoff: float = NAME_MATCH_CUTOFF,
 ) -> pd.DataFrame:
     """Propone el cruce entre nombres del CSV de afluencia y nombres de OSM.
 
-    Es una propuesta, no la verdad: la salida se revisa a mano y se corrige
-    antes de usarse. Los nombres sin match quedan con osm_name en None para
-    que salten a la vista.
+    Auto-acepta unicamente la igualdad exacta sobre la forma normalizada, que
+    ya absorbe acentos, guiones y mayusculas. Lo demas se deja sin cruzar, con
+    la columna `candidatos` llena para que un humano elija.
 
-    Compara sobre la forma normalizada, asi que acentos y guiones no estorban.
+    El umbral difuso se quito a proposito. Con cutoff 0.6 cruzaba "Obrera"
+    (linea 8, Cuauhtemoc) con "Potrero" (GAM) y "Zapata" (Benito Juarez) con
+    "La Pastora" (GAM): afluencia de media ciudad aterrizando en los hexagonos
+    de los que sale la conclusion del estudio, sin que fallara nada. Y subir
+    el umbral tampoco servia, porque el caso legitimo que motivaba la
+    heuristica puntuaba 0.69, por debajo de varios de esos falsos positivos.
 
-    Un solo umbral de similaridad no alcanza: "Deportivo 18 de Marzo" contra
-    "18 de Marzo" (el caso real que motiva esta funcion) puntua 0.69, mientras
-    que "Obrera" contra "Potrero" puntua 0.62. Cualquier corte que acepte al
-    primero acepta tambien al segundo, y el segundo es basura: son estaciones
-    en alcaldias distintas, a varios kilometros. Por eso se resuelve en tres
-    pasos, cada uno mas permisivo que el anterior, y el primero que produce
-    una respuesta gana:
-
-    1. Igualdad exacta sobre el nombre normalizado.
-    2. Contencion de subcadena, solo si hay una unica estacion de OSM que
-       contenga (o este contenida en) el nombre. Con varias candidatas no se
-       puede saber cual es la correcta sin ver el mapa, asi que se deja sin
-       cruzar.
-    3. Similaridad difusa con un umbral alto (NAME_MATCH_CUTOFF), como ultimo
-       recurso para los nombres que ni son iguales ni uno contiene al otro.
+    `similarity` se conserva como dato informativo del mejor candidato, no
+    como criterio de aceptacion.
     """
     normalized_osm = {normalize_name(name): name for name in osm_names}
 
@@ -227,43 +215,35 @@ def propose_name_map(
     for name in sorted(afluencia_names):
         key = normalize_name(name)
 
-        # 1. Igualdad exacta ya normalizada. Gana siempre, y es lo que salva a
-        #    "Aragon", "Bosque de Aragon" y "Villa de Aragon" de pisarse entre
-        #    ellas: las tres son estaciones distintas y reales.
+        # Solo la igualdad exacta ya normalizada se auto-acepta.
         if key in normalized_osm:
-            rows.append((name, normalized_osm[key], 1.0))
+            rows.append((name, normalized_osm[key], 1.0, ""))
             continue
 
-        # 2. Contencion de subcadena, solo si es UNICA. Esto es lo que cruza
-        #    "Deportivo 18 de Marzo" con "18 de Marzo", que puntua apenas 0.69
-        #    y no pasaria ningun umbral sano. Si hay varias candidatas la
-        #    dejamos sin cruzar: que decida un humano, no el desempate.
-        contained = sorted(
-            {osm for osm_key, osm in normalized_osm.items()
-             if key in osm_key or osm_key in key}
+        # Todo lo demas queda SIN cruzar, con candidatos para que un humano
+        # decida. No es pereza: se midio contra los datos reales y la
+        # adivinanza no aportaba nada bueno. De 25 estaciones clave de GAM,
+        # 23 cruzan exacto. Los unicos cruces que aportaba la heuristica eran
+        # falsos: "Plaza Aragon" (Ecatepec) contra "Aragon" (GAM), "Tlahuac"
+        # contra "Cuitlahuac" porque una es subcadena de la otra a media
+        # palabra, y "Universidad" (terminal de linea 3, en Coyoacan, de las
+        # mas transitadas de la red) contra una estacion de autobuses que si
+        # esta en GAM. Cada uno de esos mete afluencia ajena en el mapa sin
+        # que nada falle.
+        scored = sorted(
+            (
+                (difflib.SequenceMatcher(None, key, osm_key).ratio(), osm)
+                for osm_key, osm in normalized_osm.items()
+            ),
+            reverse=True,
         )
-        if len(contained) == 1:
-            rows.append((name, contained[0], 0.9))
-            continue
-        if len(contained) > 1:
-            rows.append((name, None, 0.0))
-            continue
+        best_score = scored[0][0] if scored else 0.0
+        candidates = " | ".join(osm for _, osm in scored[:3])
+        rows.append((name, None, best_score, candidates))
 
-        # 3. Similaridad difusa, con umbral alto. El 0.6 original cruzaba
-        #    "Obrera" con "Potrero" (0.62) y "Zapata" con "La Pastora" (0.62),
-        #    mandando afluencia de estaciones de otras alcaldias a hexagonos
-        #    de GAM. Eso no es un cruce flojo: es dato inventado.
-        best_osm, best_score = None, 0.0
-        for osm_key, osm in normalized_osm.items():
-            score = difflib.SequenceMatcher(None, key, osm_key).ratio()
-            if score > best_score:
-                best_osm, best_score = osm, score
-        if best_score >= cutoff:
-            rows.append((name, best_osm, best_score))
-        else:
-            rows.append((name, None, 0.0))
-
-    return pd.DataFrame(rows, columns=["afluencia_name", "osm_name", "similarity"])
+    return pd.DataFrame(
+        rows, columns=["afluencia_name", "osm_name", "similarity", "candidatos"]
+    )
 
 
 def to_hex_features(gam_hexes: pd.DataFrame, stations: pd.DataFrame) -> pd.DataFrame:

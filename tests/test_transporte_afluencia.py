@@ -71,11 +71,15 @@ def test_name_map_matches_across_accents():
     assert out.iloc[0]["osm_name"] == "Instituto del Petróleo"
 
 
-def test_name_map_matches_partial_name():
-    """El caso real del spec: el CSV dice una cosa y OSM otra."""
+def test_name_map_does_not_guess_partial_names():
+    """Un nombre que no es identico queda para revision, con candidatos.
+
+    Medido contra los datos reales: 23 de 25 estaciones clave de GAM cruzan
+    exacto, y los unicos cruces que aportaba la heuristica eran falsos.
+    """
     out = propose_name_map(["Deportivo 18 de Marzo"], ["18 de Marzo"])
-    assert out.iloc[0]["osm_name"] == "18 de Marzo"
-    assert out.iloc[0]["similarity"] > 0.6
+    assert out.iloc[0]["osm_name"] is None
+    assert "18 de Marzo" in out.iloc[0]["candidatos"]
 
 
 def test_name_map_rejects_unrelated_stations():
@@ -90,7 +94,7 @@ def test_name_map_rejects_unrelated_stations():
     assert out.set_index("afluencia_name").loc["Zapata", "osm_name"] is None
 
 
-def test_name_map_prefers_exact_over_containment():
+def test_name_map_exact_wins_over_similar_neighbours():
     """Aragon, Bosque de Aragon y Villa de Aragon son tres estaciones reales."""
     osm = ["Aragón", "Bosque de Aragón", "Villa de Aragón"]
     out = propose_name_map(["Aragón"], osm).set_index("afluencia_name")
@@ -98,9 +102,9 @@ def test_name_map_prefers_exact_over_containment():
     assert out.loc["Aragón", "similarity"] == 1.0
 
 
-def test_name_map_leaves_ambiguous_containment_unmatched():
-    """Sin match exacto y con varias candidatas por contencion, decide un humano."""
-    out = propose_name_map(["Central"], ["Central Norte", "Central Sur"])
+def test_name_map_does_not_match_substring_of_another_station():
+    """"tlahuac" es subcadena de "cuitlahuac" por pura coincidencia."""
+    out = propose_name_map(["Tláhuac"], ["Cuitláhuac"])
     assert out.iloc[0]["osm_name"] is None
 
 

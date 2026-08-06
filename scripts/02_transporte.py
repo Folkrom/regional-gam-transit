@@ -99,6 +99,10 @@ def main() -> None:
         for name in sorted(missing):
             print(f"  - {name}")
 
+    pendientes = name_map["osm_name"].isna().sum()
+    if pendientes > 0:
+        print(f"Pendientes de revision humana en {NAME_MAP}: {pendientes}")
+
     features = to_hex_features(hexes, merged)
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     features.to_parquet(OUTPUT)
