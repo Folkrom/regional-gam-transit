@@ -1579,6 +1579,25 @@ from rtgam.sources.transporte import (
 )
 
 
+def test_weekday_mean_sums_lines_before_averaging_days():
+    """Una estacion de transbordo aparece una vez por linea el mismo dia.
+
+    Promediar directo la parte a la mitad. Medido sobre los datos reales:
+    Martin Carrera (lineas 4 y 6) daba 24,305 en vez de 48,609.
+    """
+    rows = []
+    for fecha in ["2025-01-06", "2025-01-07"]:
+        rows.append({"fecha": fecha, "estacion": "Martín Carrera", "linea": "Linea 4", "afluencia": 300})
+        rows.append({"fecha": fecha, "estacion": "Martín Carrera", "linea": "Linea 6", "afluencia": 200})
+        rows.append({"fecha": fecha, "estacion": "Potrero", "linea": "Linea 3", "afluencia": 100})
+    out = weekday_mean_by_station(
+        pd.DataFrame(rows), year=2025, date_col="fecha",
+        station_col="estacion", value_col="afluencia",
+    ).set_index("afluencia_name")
+    assert out.loc["Martín Carrera", "afluencia_habil"] == pytest.approx(500.0)
+    assert out.loc["Potrero", "afluencia_habil"] == pytest.approx(100.0)
+
+
 @pytest.fixture
 def daily():
     """2025-01-06 a 2025-01-12: lunes a domingo."""
@@ -1761,7 +1780,16 @@ def weekday_mean_by_station(
     is_weekday = frame[date_col].dt.weekday < 5
     frame = frame[is_target_year & is_weekday]
 
-    grouped = frame.groupby(station_col)[value_col].mean().reset_index()
+    # Primero sumar por (fecha, estacion), DESPUES promediar entre dias.
+    # El CSV del Metro trae una fila por (fecha, linea, estacion), asi que una
+    # estacion de transbordo aparece dos veces el mismo dia. Promediar directo
+    # la parte a la mitad: Martin Carrera (L4+L6) daba 24,305 en vez de 48,609,
+    # igual La Raza, Deportivo 18 de Marzo, Instituto del Petroleo y Consulado.
+    # Justo los nodos de transbordo, que son los de mas peaton y los que mas
+    # importan para ubicar una cafeteria. Para una fuente que ya publica una
+    # fila por estacion por dia, la suma es identidad y no cambia nada.
+    por_dia = frame.groupby([date_col, station_col], as_index=False)[value_col].sum()
+    grouped = por_dia.groupby(station_col)[value_col].mean().reset_index()
     grouped.columns = ["afluencia_name", "afluencia_habil"]
     return grouped
 
