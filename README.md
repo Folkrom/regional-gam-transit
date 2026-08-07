@@ -61,7 +61,17 @@ del dashboard.
 - Las distancias son euclidianas y no conocen barreras. El cerro del
   Chiquihuite, el Río de los Remedios y la autopista México-Pachuca hacen
   que los hexágonos detrás de ellas salgan sobrevalorados.
-- De seis variables previstas solo hay datos de una. DENUE, OSM y censo
-  faltan.
+- De seis variables previstas hay datos de tres: flujo de transporte,
+  competencia y atractores comerciales. Faltan OSM y censo, que aportarían
+  accesibilidad peatonal, atractores de OSM, densidad de población y perfil
+  socioeconómico.
+- DENUE se filtra por alcaldía, no por geometría, así que los negocios justo
+  afuera del límite de GAM no cuentan aunque estén a menos de 800 m de un
+  hexágono. Medido: 76 de los 724 hexágonos pierden más de un atractor y 33
+  pierden más del 20% de su valor; el peor caso queda subestimado 7.5 veces.
+  Afecta sobre todo el borde sur, contra Cuauhtémoc y Venustiano Carranza.
+  Arreglarlo del todo no es posible con este archivo, que solo cubre la CDMX:
+  los bordes norte y oriente, contra Tlalnepantla, Ecatepec y Nezahualcóyotl,
+  seguirían ciegos.
 - No hay ground truth: esto prioriza dónde mirar, no predice que un negocio
   funcione.

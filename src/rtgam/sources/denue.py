@@ -42,6 +42,12 @@ def load_gam(csv_path: str | Path) -> pd.DataFrame:
         csv_path, encoding=DENUE_ENCODING, usecols=USECOLS, low_memory=False
     )
     frame = frame[frame["municipio"].astype(str) == GAM_MUNICIPIO]
+    if frame.empty:
+        raise ValueError(
+            f"Ninguna fila con municipio == {GAM_MUNICIPIO!r}. Si INEGI cambio "
+            f"la escritura del nombre, ambas variables saldrian en cero sin que "
+            f"nada fallara, y el score las reportaria como presentes."
+        )
     frame = frame.rename(columns={"latitud": "lat", "longitud": "lon"})
     frame = frame.dropna(subset=["lat", "lon"])
     return frame.drop(columns=["municipio"]).reset_index(drop=True)
@@ -126,7 +132,9 @@ def _extract(
     silencio los datos viejos, que es justo lo que --force venia a evitar.
     """
     destination = cache_dir / "denue_gam.csv"
-    if overwrite or not destination.exists():
+    esperado = zf.getinfo(name).file_size
+    completo = destination.exists() and destination.stat().st_size == esperado
+    if overwrite or not completo:
         destination.write_bytes(zf.read(name))
     return destination
 
