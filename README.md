@@ -61,10 +61,10 @@ del dashboard.
 - Las distancias son euclidianas y no conocen barreras. El cerro del
   Chiquihuite, el Río de los Remedios y la autopista México-Pachuca hacen
   que los hexágonos detrás de ellas salgan sobrevalorados.
-- De seis variables previstas hay datos de tres: flujo de transporte,
-  competencia y atractores comerciales. Faltan OSM y censo, que aportarían
-  accesibilidad peatonal, atractores de OSM, densidad de población y perfil
-  socioeconómico.
+- De las **siete** variables de `config/weights.yaml` hay datos de tres:
+  `flujo_transporte`, `competencia` y `atractores_denue`. Faltan cuatro:
+  `accesibilidad_peatonal` y `atractores_osm` (los aporta OSM), y
+  `densidad_pob` y `nivel_socioeconomico` (los aporta el censo).
 - DENUE se filtra por alcaldía, no por geometría, así que los negocios justo
   afuera del límite de GAM no cuentan aunque estén a menos de 800 m de un
   hexágono. Medido: 76 de los 724 hexágonos pierden más de un atractor y 33
