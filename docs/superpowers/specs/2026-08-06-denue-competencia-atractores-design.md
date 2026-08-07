@@ -173,9 +173,11 @@ sin tocar código existente.
 
 ### Costo de memoria declarado
 
-La matriz de distancias es 724 × 34,241 ≈ **198 MB en float64**, unas 40 veces la de
-transporte (724 × 43). Cabe en una máquina normal. Si aprieta, se parte en bloques de
-filas; no se optimiza antes de tener el problema.
+Pico de memoria medido en la corrida real: **~1.1 GB**, no los 198 MB que estimé al
+principio. La cuenta ingenua asume una matriz viva; `haversine_m` mantiene unas seis
+del mismo tamaño a la vez (dlat, dlon, los senos al cuadrado, `a`, la raíz, el arcoseno).
+Cabe en una máquina normal, pero la cifra existe justamente para que quien lea sepa si
+le cabe, así que vale la medida y no la estimación.
 
 ## Manejo de errores
 

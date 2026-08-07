@@ -134,6 +134,36 @@ def test_descarta_filas_sin_coordenadas(tmp_path):
     assert not df[["lat", "lon"]].isna().any().any()
 
 
+def test_extraccion_truncada_se_rehace(tmp_path):
+    """Un CSV extraido a medias no se debe reusar.
+
+    write_bytes de 260 MB no es atomico: un Ctrl-C o un disco lleno dejan el
+    archivo cortado, y sin esta comprobacion cada corrida posterior lo reusa.
+    Medido truncando el archivo real: 9,342 filas en vez de 50,927 y
+    competencia en cero, sin que nada lanzara.
+    """
+    cache = tmp_path / "denue_09_csv.zip"
+    with zipfile.ZipFile(cache, "w") as zf:
+        zf.writestr("conjunto_de_datos/denue_inegi_09_.csv", "col\ncompleto")
+
+    destination = fetch_denue_csv(tmp_path)
+    destination.write_bytes(b"cor")  # simula extraccion cortada
+
+    assert fetch_denue_csv(tmp_path).read_text(encoding="latin-1") == "col\ncompleto"
+
+
+def test_municipio_sin_coincidencias_lanza(tmp_path):
+    """Un cambio de escritura en el nombre dejaria ambas variables en cero."""
+    ruta = tmp_path / "denue.csv"
+    filas = [
+        "id,nom_estab,codigo_act,per_ocu,municipio,latitud,longitud",
+        "1,ALGO,465311,0 a 5 personas,Otra Alcaldia,19.50,-99.10",
+    ]
+    ruta.write_bytes("\n".join(filas).encode("latin-1"))
+    with pytest.raises(ValueError, match="Gustavo A. Madero"):
+        load_gam(ruta)
+
+
 def test_municipio_esperado_es_constante():
     assert GAM_MUNICIPIO == "Gustavo A. Madero"
 
@@ -313,6 +343,12 @@ def load_gam(csv_path: str | Path) -> pd.DataFrame:
         csv_path, encoding=DENUE_ENCODING, usecols=USECOLS, low_memory=False
     )
     frame = frame[frame["municipio"].astype(str) == GAM_MUNICIPIO]
+    if frame.empty:
+        raise ValueError(
+            f"Ninguna fila con municipio == {GAM_MUNICIPIO!r}. Si INEGI cambio "
+            f"la escritura del nombre, ambas variables saldrian en cero sin que "
+            f"nada fallara, y el score las reportaria como presentes."
+        )
     frame = frame.rename(columns={"latitud": "lat", "longitud": "lon"})
     frame = frame.dropna(subset=["lat", "lon"])
     return frame.drop(columns=["municipio"]).reset_index(drop=True)
@@ -408,7 +444,9 @@ def _extract(
     silencio los datos viejos, que es justo lo que --force venia a evitar.
     """
     destination = cache_dir / "denue_gam.csv"
-    if overwrite or not destination.exists():
+    esperado = zf.getinfo(name).file_size
+    completo = destination.exists() and destination.stat().st_size == esperado
+    if overwrite or not completo:
         destination.write_bytes(zf.read(name))
     return destination
 ```
@@ -419,7 +457,7 @@ def _extract(
 uv run pytest -q
 ```
 
-Esperado: PASS, 89 pruebas (76 previas + 13 nuevas).
+Esperado: PASS, 91 pruebas (76 previas + 15 nuevas).
 
 - [ ] **Step 7: Commit**
 
@@ -771,7 +809,7 @@ Esperado: PASS, 4 pruebas.
 uv run pytest -q
 ```
 
-Esperado: PASS, 102 pruebas (76 previas + 13 + 9 + 4).
+Esperado: PASS, 104 pruebas (76 previas + 15 + 9 + 4).
 
 - [ ] **Step 6: Commit**
 
