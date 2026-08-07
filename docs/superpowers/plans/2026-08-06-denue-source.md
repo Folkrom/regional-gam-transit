@@ -522,11 +522,17 @@ ATTRACTOR_SECTORS = ("46", "72", "61", "62", "71")
 #
 # CAFF esta a proposito: la primera version se comio AMOATO CAFFE EXPRESS.
 #
+# TOSTADOR y no TOSTAD: TOSTAD tambien matchea TOSTADAS, que es antojito y
+# no cafe. CIELITO QUERIDO y no CIELITO: CIELITO tambien matchea Cielito
+# Lindo, nombre comun de restaurante. Medido sobre GAM, ninguna de las dos
+# formas cortas aportaba un solo match propio (los 5 nombres que atrapaban
+# tambien contienen CAFE), asi que acotarlas quita riesgo sin perder nada.
+#
 # Es un criterio editorial, no un hecho. Por eso 03_denue.py escribe la lista
 # de cruzados a data/interim/ para revision humana.
 COFFEE_PATTERN = (
     r"CAF[EÉ]|CAFF|COFFEE|ESPRESSO|EXPRESSO|CAPPUCC|CAPUCH|BARIST|"
-    r"TOSTAD|STARBUCK|CIELITO|ITALIAN COFFEE|PUNTA DEL CIELO|MOKA|MOCCA|LATTE"
+    r"TOSTADOR|STARBUCK|CIELITO QUERIDO|ITALIAN COFFEE|PUNTA DEL CIELO|MOKA|MOCCA|LATTE"
 )
 
 
