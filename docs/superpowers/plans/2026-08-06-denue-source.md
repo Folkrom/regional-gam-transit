@@ -63,9 +63,11 @@
 `tests/test_denue_carga.py`:
 
 ```python
+import io
 import zipfile
 from pathlib import Path
 
+import pandas as pd
 import pytest
 import requests
 
@@ -84,10 +86,13 @@ FILAS = [
 ]
 
 
-def _escribir_csv(tmp_path: Path) -> Path:
-    ruta = tmp_path / "denue.csv"
-    ruta.write_bytes("\n".join(FILAS).encode(DENUE_ENCODING))
-    return ruta
+def _write_csv(tmp_path: Path) -> Path:
+    # El literal "latin-1" va a proposito, NO la constante del modulo. Si se
+    # usara DENUE_ENCODING en ambos lados, cambiarla a utf-8 haria que la
+    # prueba escriba y lea con el mismo valor equivocado y siguiera pasando.
+    path = tmp_path / "denue.csv"
+    path.write_bytes("\n".join(FILAS).encode("latin-1"))
+    return path
 
 
 def test_lee_en_latin1_sin_romper_acentos(tmp_path):
@@ -97,21 +102,21 @@ def test_lee_en_latin1_sin_romper_acentos(tmp_path):
     encoding mal leido que no fallo, solo perdio un tercio de los datos en
     silencio.
     """
-    df = load_gam(_escribir_csv(tmp_path))
+    df = load_gam(_write_csv(tmp_path))
     nombres = set(df["nom_estab"])
     assert "CAFÉ MARTÍNEZ" in nombres
     assert "PAPELERÍA SOLÍS" in nombres
 
 
 def test_filtra_solo_gam(tmp_path):
-    df = load_gam(_escribir_csv(tmp_path))
+    df = load_gam(_write_csv(tmp_path))
     assert len(df) == 2
     assert "TIENDA DE OTRA ALCALDÍA" not in set(df["nom_estab"])
 
 
 def test_renombra_coordenadas_a_lat_lon(tmp_path):
     """accumulate_decay espera lat/lon; DENUE los llama latitud/longitud."""
-    df = load_gam(_escribir_csv(tmp_path))
+    df = load_gam(_write_csv(tmp_path))
     assert "lat" in df.columns
     assert "lon" in df.columns
     assert "latitud" not in df.columns
@@ -131,6 +136,23 @@ def test_descarta_filas_sin_coordenadas(tmp_path):
 
 def test_municipio_esperado_es_constante():
     assert GAM_MUNICIPIO == "Gustavo A. Madero"
+
+
+def test_encoding_declarado_es_latin1():
+    """Fija el valor. Sin esto, cambiarlo a utf-8 no rompe ninguna prueba."""
+    assert DENUE_ENCODING == "latin-1"
+
+
+def test_el_archivo_no_es_utf8(tmp_path):
+    """Prueba con dientes: el mismo fixture leido como utf-8 debe reventar.
+
+    Verificado contra el archivo real de INEGI, que lanza UnicodeDecodeError
+    en utf-8. Si algun dia el portal publicara en utf-8, esta prueba falla y
+    obliga a revisar, en vez de perder acentos en silencio.
+    """
+    path = _write_csv(tmp_path)
+    with pytest.raises(UnicodeDecodeError):
+        pd.read_csv(path, encoding="utf-8")
 
 
 def test_cache_corrupta_nombra_el_archivo_y_el_remedio(tmp_path, monkeypatch):
@@ -155,6 +177,53 @@ def test_zip_sin_csv_adentro_falla_claro(tmp_path):
 
     with pytest.raises(ValueError, match="ningun .csv"):
         fetch_denue_csv(tmp_path)
+
+
+def _zip_bytes(contenido: str) -> bytes:
+    """Zip en memoria con el CSV bajo conjunto_de_datos/, como el real."""
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as zf:
+        zf.writestr("conjunto_de_datos/denue_inegi_09_.csv", contenido)
+    return buffer.getvalue()
+
+
+class _RespuestaFalsa:
+    def __init__(self, content: bytes):
+        self.content = content
+
+    def raise_for_status(self):
+        return None
+
+
+def test_descarga_extrae_y_cachea(tmp_path, monkeypatch):
+    """Camino feliz: baja, valida, escribe cache y devuelve el CSV extraido."""
+    monkeypatch.setattr(
+        requests, "get", lambda *a, **k: _RespuestaFalsa(_zip_bytes("col\nvalor"))
+    )
+    destino = fetch_denue_csv(tmp_path)
+    assert destino.exists()
+    assert (tmp_path / "denue_09_csv.zip").exists()
+    assert destino.read_text(encoding="latin-1").startswith("col")
+
+
+def test_force_reemplaza_el_csv_extraido(tmp_path, monkeypatch):
+    """--force debe traer los datos nuevos, no el CSV extraido de antes.
+
+    Sin overwrite, un zip nuevo convive con la extraccion vieja y el llamador
+    recibe en silencio los datos anteriores, que es justo lo que --force
+    venia a evitar.
+    """
+    monkeypatch.setattr(
+        requests, "get", lambda *a, **k: _RespuestaFalsa(_zip_bytes("col\nviejo"))
+    )
+    primero = fetch_denue_csv(tmp_path)
+    assert "viejo" in primero.read_text(encoding="latin-1")
+
+    monkeypatch.setattr(
+        requests, "get", lambda *a, **k: _RespuestaFalsa(_zip_bytes("col\nnuevo"))
+    )
+    segundo = fetch_denue_csv(tmp_path, force=True)
+    assert "nuevo" in segundo.read_text(encoding="latin-1")
 ```
 
 - [ ] **Step 2: Correr las pruebas y verificar que fallan**
@@ -224,7 +293,7 @@ def load_gam(csv_path: str | Path) -> pd.DataFrame:
 uv run pytest tests/test_denue_carga.py -v
 ```
 
-Esperado: PASS, 5 pruebas (las de `load_gam`; las de `fetch_denue_csv` llegan en el Step 5).
+Esperado: PASS, 7 pruebas (las de `load_gam` y encoding; las de `fetch_denue_csv` llegan en el Step 5).
 
 - [ ] **Step 5: Agregar la descarga con caché, y sus dos pruebas**
 
@@ -250,8 +319,8 @@ def fetch_denue_csv(cache_dir: Path, force: bool = False) -> Path:
     if zip_path.exists() and not force:
         try:
             with zipfile.ZipFile(zip_path) as zf:
-                nombre = _primer_csv(zf)
-                return _extraer(zf, nombre, cache_dir)
+                name = _first_csv(zf)
+                return _extract(zf, name, cache_dir)
         except zipfile.BadZipFile as error:
             raise ValueError(
                 f"La cache {zip_path} esta corrupta o truncada. Borrala o "
@@ -263,35 +332,43 @@ def fetch_denue_csv(cache_dir: Path, force: bool = False) -> Path:
     )
     response.raise_for_status()
 
-    contenido = response.content
-    with zipfile.ZipFile(io.BytesIO(contenido)) as zf:
-        nombre = _primer_csv(zf)
+    content = response.content
+    with zipfile.ZipFile(io.BytesIO(content)) as zf:
+        name = _first_csv(zf)
 
-    zip_path.write_bytes(contenido)
+    zip_path.write_bytes(content)
     with zipfile.ZipFile(zip_path) as zf:
-        return _extraer(zf, nombre, cache_dir)
+        return _extract(zf, name, cache_dir, overwrite=True)
 
 
-def _primer_csv(zf: zipfile.ZipFile) -> str:
+def _first_csv(zf: zipfile.ZipFile) -> str:
     """Nombre del primer .csv dentro del zip.
 
     El zip trae el CSV bajo conjunto_de_datos/ junto con diccionarios y
     metadatos, y la ruta exacta cambia entre versiones del archivo.
     """
-    nombres = [n for n in zf.namelist() if n.lower().endswith(".csv")]
-    if not nombres:
+    names = [n for n in zf.namelist() if n.lower().endswith(".csv")]
+    if not names:
         raise ValueError(
             f"El zip de DENUE no trae ningun .csv adentro. Contenido: "
             f"{zf.namelist()[:5]}"
         )
-    return nombres[0]
+    return names[0]
 
 
-def _extraer(zf: zipfile.ZipFile, nombre: str, cache_dir: Path) -> Path:
-    destino = cache_dir / "denue_gam.csv"
-    if not destino.exists():
-        destino.write_bytes(zf.read(nombre))
-    return destino
+def _extract(
+    zf: zipfile.ZipFile, name: str, cache_dir: Path, overwrite: bool = False
+) -> Path:
+    """Extrae el CSV del zip a cache_dir.
+
+    `overwrite` existe para el camino de descarga fresca: si se bajo un zip
+    nuevo pero se conserva el CSV extraido de antes, el llamador recibiria en
+    silencio los datos viejos, que es justo lo que --force venia a evitar.
+    """
+    destination = cache_dir / "denue_gam.csv"
+    if overwrite or not destination.exists():
+        destination.write_bytes(zf.read(name))
+    return destination
 ```
 
 - [ ] **Step 6: Correr toda la suite**
@@ -300,7 +377,7 @@ def _extraer(zf: zipfile.ZipFile, nombre: str, cache_dir: Path) -> Path:
 uv run pytest -q
 ```
 
-Esperado: PASS, 83 pruebas (76 previas + 7 nuevas).
+Esperado: PASS, 87 pruebas (76 previas + 11 nuevas).
 
 - [ ] **Step 7: Commit**
 
@@ -614,7 +691,7 @@ Esperado: PASS, 4 pruebas.
 uv run pytest -q
 ```
 
-Esperado: PASS, 94 pruebas (76 previas + 7 + 7 + 4).
+Esperado: PASS, 98 pruebas (76 previas + 11 + 7 + 4).
 
 - [ ] **Step 6: Commit**
 
