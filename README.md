@@ -30,6 +30,7 @@ Todo lo demás se descarga solo.
 ```bash
 uv run python scripts/01_build_grid.py
 uv run python scripts/02_transporte.py
+uv run python scripts/03_denue.py
 uv run python scripts/99_score.py
 uv run streamlit run app/dashboard.py
 ```
@@ -39,6 +40,11 @@ uv run streamlit run app/dashboard.py
 Tras la primera corrida de `02`, revisar `data/interim/station_name_map.csv`.
 Solo se cruzan automáticamente los nombres idénticos; el resto trae
 candidatos para llenar a mano.
+
+Tras la primera corrida de `03`, revisar `data/interim/competencia_denue.csv`.
+La lista de cafeterías se arma con un patrón de nombres sobre el código SCIAN
+722515, que es criterio editorial y no un hecho: ese código mezcla cafeterías
+con paleterías y puestos de antojitos.
 
 ## Qué significa el score
 
@@ -55,7 +61,17 @@ del dashboard.
 - Las distancias son euclidianas y no conocen barreras. El cerro del
   Chiquihuite, el Río de los Remedios y la autopista México-Pachuca hacen
   que los hexágonos detrás de ellas salgan sobrevalorados.
-- De seis variables previstas solo hay datos de una. DENUE, OSM y censo
-  faltan.
+- De las **siete** variables de `config/weights.yaml` hay datos de tres:
+  `flujo_transporte`, `competencia` y `atractores_denue`. Faltan cuatro:
+  `accesibilidad_peatonal` y `atractores_osm` (los aporta OSM), y
+  `densidad_pob` y `nivel_socioeconomico` (los aporta el censo).
+- DENUE se filtra por alcaldía, no por geometría, así que los negocios justo
+  afuera del límite de GAM no cuentan aunque estén a menos de 800 m de un
+  hexágono. Medido: 76 de los 724 hexágonos pierden más de un atractor y 33
+  pierden más del 20% de su valor; el peor caso queda subestimado 7.5 veces.
+  Afecta sobre todo el borde sur, contra Cuauhtémoc y Venustiano Carranza.
+  Arreglarlo del todo no es posible con este archivo, que solo cubre la CDMX:
+  los bordes norte y oriente, contra Tlalnepantla, Ecatepec y Nezahualcóyotl,
+  seguirían ciegos.
 - No hay ground truth: esto prioriza dónde mirar, no predice que un negocio
   funcione.
