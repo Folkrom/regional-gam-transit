@@ -62,8 +62,8 @@ def fetch_denue_csv(cache_dir: Path, force: bool = False) -> Path:
     if zip_path.exists() and not force:
         try:
             with zipfile.ZipFile(zip_path) as zf:
-                nombre = _primer_csv(zf)
-                return _extraer(zf, nombre, cache_dir)
+                name = _first_csv(zf)
+                return _extract(zf, name, cache_dir)
         except zipfile.BadZipFile as error:
             raise ValueError(
                 f"La cache {zip_path} esta corrupta o truncada. Borrala o "
@@ -75,32 +75,40 @@ def fetch_denue_csv(cache_dir: Path, force: bool = False) -> Path:
     )
     response.raise_for_status()
 
-    contenido = response.content
-    with zipfile.ZipFile(io.BytesIO(contenido)) as zf:
-        nombre = _primer_csv(zf)
+    content = response.content
+    with zipfile.ZipFile(io.BytesIO(content)) as zf:
+        name = _first_csv(zf)
 
-    zip_path.write_bytes(contenido)
+    zip_path.write_bytes(content)
     with zipfile.ZipFile(zip_path) as zf:
-        return _extraer(zf, nombre, cache_dir)
+        return _extract(zf, name, cache_dir, overwrite=True)
 
 
-def _primer_csv(zf: zipfile.ZipFile) -> str:
+def _first_csv(zf: zipfile.ZipFile) -> str:
     """Nombre del primer .csv dentro del zip.
 
     El zip trae el CSV bajo conjunto_de_datos/ junto con diccionarios y
     metadatos, y la ruta exacta cambia entre versiones del archivo.
     """
-    nombres = [n for n in zf.namelist() if n.lower().endswith(".csv")]
-    if not nombres:
+    names = [n for n in zf.namelist() if n.lower().endswith(".csv")]
+    if not names:
         raise ValueError(
             f"El zip de DENUE no trae ningun .csv adentro. Contenido: "
             f"{zf.namelist()[:5]}"
         )
-    return nombres[0]
+    return names[0]
 
 
-def _extraer(zf: zipfile.ZipFile, nombre: str, cache_dir: Path) -> Path:
-    destino = cache_dir / "denue_gam.csv"
-    if not destino.exists():
-        destino.write_bytes(zf.read(nombre))
-    return destino
+def _extract(
+    zf: zipfile.ZipFile, name: str, cache_dir: Path, overwrite: bool = False
+) -> Path:
+    """Extrae el CSV del zip a cache_dir.
+
+    `overwrite` existe para el camino de descarga fresca: si se bajo un zip
+    nuevo pero se conserva el CSV extraido de antes, el llamador recibiria en
+    silencio los datos viejos, que es justo lo que --force venia a evitar.
+    """
+    destination = cache_dir / "denue_gam.csv"
+    if overwrite or not destination.exists():
+        destination.write_bytes(zf.read(name))
+    return destination
