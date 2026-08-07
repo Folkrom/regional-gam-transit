@@ -86,10 +86,14 @@ def fetch_denue_csv(cache_dir: Path, force: bool = False) -> Path:
 
 
 def _first_csv(zf: zipfile.ZipFile) -> str:
-    """Nombre del primer .csv dentro del zip.
+    """Nombre del CSV de datos dentro del zip.
 
-    El zip trae el CSV bajo conjunto_de_datos/ junto con diccionarios y
-    metadatos, y la ruta exacta cambia entre versiones del archivo.
+    El zip trae el CSV bajo conjunto_de_datos/ junto con un diccionario de
+    datos (diccionario_de_datos/) y metadatos (metadatos/). Ordenados
+    alfabeticamente "diccionario_de_datos" va ANTES que "conjunto_de_datos",
+    asi que tomar el primer .csv a secas agarra el diccionario, no los datos:
+    se vio en la corrida real contra el zip de INEGI. Se prefiere el que vive
+    bajo conjunto_de_datos/, y solo si ninguno califica se cae al primero.
     """
     names = [n for n in zf.namelist() if n.lower().endswith(".csv")]
     if not names:
@@ -97,6 +101,9 @@ def _first_csv(zf: zipfile.ZipFile) -> str:
             f"El zip de DENUE no trae ningun .csv adentro. Contenido: "
             f"{zf.namelist()[:5]}"
         )
+    for name in names:
+        if "conjunto_de_datos" in name:
+            return name
     return names[0]
 
 
