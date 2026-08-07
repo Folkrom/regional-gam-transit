@@ -15,6 +15,7 @@ import pandas as pd
 import requests
 
 from rtgam import USER_AGENT
+from rtgam.geo import accumulate_decay
 
 DENUE_URL = "https://www.inegi.org.mx/contenidos/masiva/denue/denue_09_csv.zip"
 DENUE_TIMEOUT_S = 300
@@ -169,3 +170,35 @@ def split_competencia_atractores(
     competencia = gam[es_cafe]
     atractores = gam[es_sector_calle & ~es_cafe]
     return competencia.reset_index(drop=True), atractores.reset_index(drop=True)
+
+
+PESO_COL = "peso"
+
+
+def to_hex_features(
+    gam_hexes: pd.DataFrame,
+    competencia: pd.DataFrame,
+    atractores: pd.DataFrame,
+) -> pd.DataFrame:
+    """Reparte los establecimientos sobre los hexagonos con el kernel del proyecto.
+
+    Cada establecimiento vale 1: la suma ponderada de unos ES el conteo con
+    decaimiento, asi que no hace falta codigo nuevo de reparto espacial.
+
+    No se pondera por personal ocupado a proposito. Medido sobre GAM, hacerlo
+    concentraria 26.8% de la variable en el top 1%, dominado por Costco y
+    Liverpool, que son destinos de coche y no traen peaton de banqueta.
+
+    Devuelve un DataFrame indexado por hex_id con las UNICAS dos columnas que
+    esta fuente posee, en valores crudos y sin normalizar.
+    """
+    return pd.DataFrame(
+        {
+            "competencia": accumulate_decay(
+                gam_hexes, competencia.assign(**{PESO_COL: 1.0}), PESO_COL
+            ),
+            "atractores_denue": accumulate_decay(
+                gam_hexes, atractores.assign(**{PESO_COL: 1.0}), PESO_COL
+            ),
+        }
+    )
