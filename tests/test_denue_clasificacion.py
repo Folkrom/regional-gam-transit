@@ -23,6 +23,33 @@ def test_atrapa_caffe_con_doble_efe():
     assert len(competencia) == 1
 
 
+def test_no_confunde_tostadas_ni_cielito_lindo_con_cafeterias():
+    """Dos colisiones reales del patron corto.
+
+    TOSTAD matchea TOSTADAS, que es antojito. CIELITO matchea Cielito Lindo,
+    nombre comun de restaurante. Ninguno de los dos es competencia para una
+    cafeteria de especialidad.
+    """
+    gam = pd.DataFrame([
+        _fila("TOSTADAS DOÑA MARY", "722515"),
+        _fila("CIELITO LINDO", "722515"),
+    ])
+    competencia, atractores = split_competencia_atractores(gam)
+    assert len(competencia) == 0
+    assert len(atractores) == 2, "no compiten, pero si traen peaton"
+
+
+def test_sigue_atrapando_las_cafeterias_reales():
+    """El patron acotado no puede perder los nombres que si son cafe."""
+    gam = pd.DataFrame([
+        _fila("CIELITO QUERIDO CAFE", "722515"),
+        _fila("TOSTADITO CAFE", "722515"),
+        _fila("TOSTADOR DE CAFE LA ESPERANZA", "722515"),
+    ])
+    competencia, _ = split_competencia_atractores(gam)
+    assert len(competencia) == 3
+
+
 def test_paleterias_y_antojitos_no_son_competencia():
     """SCIAN 722515 mezcla cafeterias con paleterias y puestos de comida.
 
