@@ -39,15 +39,20 @@ def test_no_confunde_tostadas_ni_cielito_lindo_con_cafeterias():
     assert len(atractores) == 2, "no compiten, pero si traen peaton"
 
 
-def test_sigue_atrapando_las_cafeterias_reales():
-    """El patron acotado no puede perder los nombres que si son cafe."""
+def test_las_alternativas_acotadas_si_aportan_por_si_solas():
+    """Nombres que SOLO cruzan por TOSTADOR o CIELITO QUERIDO.
+
+    Ninguno contiene CAFE a proposito. Con nombres que si lo contienen la
+    prueba pasaria por la primera linea del patron aunque alguien borrara
+    estas dos alternativas, y no fijaria nada. Verificado: con el patron
+    actual estos dos cruzan, y quitando las dos alternativas dejan de cruzar.
+    """
     gam = pd.DataFrame([
-        _fila("CIELITO QUERIDO CAFE", "722515"),
-        _fila("TOSTADITO CAFE", "722515"),
-        _fila("TOSTADOR DE CAFE LA ESPERANZA", "722515"),
+        _fila("TOSTADOR LA ESPERANZA", "722515"),
+        _fila("CIELITO QUERIDO", "722515"),
     ])
     competencia, _ = split_competencia_atractores(gam)
-    assert len(competencia) == 3
+    assert len(competencia) == 2
 
 
 def test_paleterias_y_antojitos_no_son_competencia():
