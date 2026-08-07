@@ -130,6 +130,37 @@ class _RespuestaFalsa:
         return None
 
 
+def test_elige_los_datos_y_no_el_diccionario(tmp_path):
+    """El bug que se vio en la corrida real, fijado como prueba.
+
+    El zip de INEGI trae tres CSV y, alfabeticamente, diccionario_de_datos va
+    ANTES que conjunto_de_datos. Tomar el primero devolvia el diccionario en
+    vez de los datos, sin que nada fallara. Los fixtures de un solo CSV no
+    podian atraparlo.
+    """
+    cache = tmp_path / "denue_09_csv.zip"
+    with zipfile.ZipFile(cache, "w") as zf:
+        zf.writestr("diccionario_de_datos/diccionario.csv", "campo,descripcion")
+        zf.writestr("conjunto_de_datos/denue_inegi_09_.csv", "col\ndatos_reales")
+        zf.writestr("metadatos/metadatos.csv", "clave,valor")
+
+    destination = fetch_denue_csv(tmp_path)
+    assert "datos_reales" in destination.read_text(encoding="latin-1")
+
+
+def test_zip_sin_conjunto_de_datos_falla_ruidoso(tmp_path):
+    """Sin el directorio esperado se lanza, no se adivina.
+
+    Caer al primer .csv alfabetico es justo lo que causo el bug original.
+    """
+    cache = tmp_path / "denue_09_csv.zip"
+    with zipfile.ZipFile(cache, "w") as zf:
+        zf.writestr("otra_cosa/algo.csv", "col\nvalor")
+
+    with pytest.raises(ValueError, match="conjunto_de_datos"):
+        fetch_denue_csv(tmp_path)
+
+
 def test_descarga_extrae_y_cachea(tmp_path, monkeypatch):
     """Camino feliz: baja, valida, escribe cache y devuelve el CSV extraido."""
     monkeypatch.setattr(

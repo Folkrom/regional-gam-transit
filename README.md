@@ -35,16 +35,16 @@ uv run python scripts/99_score.py
 uv run streamlit run app/dashboard.py
 ```
 
-3. `uv run python scripts/03_denue.py` — descarga el DENUE de INEGI (45 MB) y
-   calcula competencia y atractores comerciales. Tras la primera corrida,
-   revisar `data/interim/competencia_denue.csv`: la lista de cafeterías se
-   arma con un patrón de nombres, que es criterio editorial y no un hecho.
-
 ## Revisión manual
 
 Tras la primera corrida de `02`, revisar `data/interim/station_name_map.csv`.
 Solo se cruzan automáticamente los nombres idénticos; el resto trae
 candidatos para llenar a mano.
+
+Tras la primera corrida de `03`, revisar `data/interim/competencia_denue.csv`.
+La lista de cafeterías se arma con un patrón de nombres sobre el código SCIAN
+722515, que es criterio editorial y no un hecho: ese código mezcla cafeterías
+con paleterías y puestos de antojitos.
 
 ## Qué significa el score
 

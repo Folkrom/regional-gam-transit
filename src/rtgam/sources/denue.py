@@ -104,7 +104,16 @@ def _first_csv(zf: zipfile.ZipFile) -> str:
     for name in names:
         if "conjunto_de_datos" in name:
             return name
-    return names[0]
+
+    # Sin fallback a names[0]. El zip real trae tres CSV y, alfabeticamente,
+    # diccionario_de_datos va ANTES que conjunto_de_datos: tomar el primero
+    # devolvia el diccionario en vez de los datos, y nada fallaba. Caer al
+    # primero otra vez seria repetir el bug en silencio.
+    raise ValueError(
+        f"Ningun .csv del zip vive bajo conjunto_de_datos/. Encontrados: "
+        f"{names}. Si INEGI cambio la estructura del zip, hay que revisar "
+        f"cual archivo son los datos antes de seguir."
+    )
 
 
 def _extract(
