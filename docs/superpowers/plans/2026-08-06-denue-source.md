@@ -432,6 +432,38 @@ def test_atrapa_caffe_con_doble_efe():
     assert len(competencia) == 1
 
 
+def test_no_confunde_tostadas_ni_cielito_lindo_con_cafeterias():
+    """Dos colisiones reales del patron corto.
+
+    TOSTAD matchea TOSTADAS, que es antojito. CIELITO matchea Cielito Lindo,
+    nombre comun de restaurante. Ninguno de los dos es competencia para una
+    cafeteria de especialidad.
+    """
+    gam = pd.DataFrame([
+        _fila("TOSTADAS DOÑA MARY", "722515"),
+        _fila("CIELITO LINDO", "722515"),
+    ])
+    competencia, atractores = split_competencia_atractores(gam)
+    assert len(competencia) == 0
+    assert len(atractores) == 2, "no compiten, pero si traen peaton"
+
+
+def test_las_alternativas_acotadas_si_aportan_por_si_solas():
+    """Nombres que SOLO cruzan por TOSTADOR o CIELITO QUERIDO.
+
+    Ninguno contiene CAFE a proposito. Con nombres que si lo contienen la
+    prueba pasaria por la primera linea del patron aunque alguien borrara
+    estas dos alternativas, y no fijaria nada. Verificado: con el patron
+    actual estos dos cruzan, y quitando las dos alternativas dejan de cruzar.
+    """
+    gam = pd.DataFrame([
+        _fila("TOSTADOR LA ESPERANZA", "722515"),
+        _fila("CIELITO QUERIDO", "722515"),
+    ])
+    competencia, _ = split_competencia_atractores(gam)
+    assert len(competencia) == 2
+
+
 def test_paleterias_y_antojitos_no_son_competencia():
     """SCIAN 722515 mezcla cafeterias con paleterias y puestos de comida.
 
@@ -566,7 +598,7 @@ def split_competencia_atractores(
 uv run pytest tests/test_denue_clasificacion.py -v
 ```
 
-Esperado: PASS, 7 pruebas.
+Esperado: PASS, 9 pruebas.
 
 - [ ] **Step 5: Commit**
 
@@ -697,7 +729,7 @@ Esperado: PASS, 4 pruebas.
 uv run pytest -q
 ```
 
-Esperado: PASS, 98 pruebas (76 previas + 11 + 7 + 4).
+Esperado: PASS, 100 pruebas (76 previas + 11 + 9 + 4).
 
 - [ ] **Step 6: Commit**
 
