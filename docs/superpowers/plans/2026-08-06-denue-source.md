@@ -195,6 +195,37 @@ class _RespuestaFalsa:
         return None
 
 
+def test_elige_los_datos_y_no_el_diccionario(tmp_path):
+    """El bug que se vio en la corrida real, fijado como prueba.
+
+    El zip de INEGI trae tres CSV y, alfabeticamente, diccionario_de_datos va
+    ANTES que conjunto_de_datos. Tomar el primero devolvia el diccionario en
+    vez de los datos, sin que nada fallara. Los fixtures de un solo CSV no
+    podian atraparlo.
+    """
+    cache = tmp_path / "denue_09_csv.zip"
+    with zipfile.ZipFile(cache, "w") as zf:
+        zf.writestr("diccionario_de_datos/diccionario.csv", "campo,descripcion")
+        zf.writestr("conjunto_de_datos/denue_inegi_09_.csv", "col\ndatos_reales")
+        zf.writestr("metadatos/metadatos.csv", "clave,valor")
+
+    destination = fetch_denue_csv(tmp_path)
+    assert "datos_reales" in destination.read_text(encoding="latin-1")
+
+
+def test_zip_sin_conjunto_de_datos_falla_ruidoso(tmp_path):
+    """Sin el directorio esperado se lanza, no se adivina.
+
+    Caer al primer .csv alfabetico es justo lo que causo el bug original.
+    """
+    cache = tmp_path / "denue_09_csv.zip"
+    with zipfile.ZipFile(cache, "w") as zf:
+        zf.writestr("otra_cosa/algo.csv", "col\nvalor")
+
+    with pytest.raises(ValueError, match="conjunto_de_datos"):
+        fetch_denue_csv(tmp_path)
+
+
 def test_descarga_extrae_y_cachea(tmp_path, monkeypatch):
     """Camino feliz: baja, valida, escribe cache y devuelve el CSV extraido."""
     monkeypatch.setattr(
@@ -353,7 +384,18 @@ def _first_csv(zf: zipfile.ZipFile) -> str:
             f"El zip de DENUE no trae ningun .csv adentro. Contenido: "
             f"{zf.namelist()[:5]}"
         )
-    return names[0]
+    for name in names:
+        if "conjunto_de_datos" in name:
+            return name
+    # Sin fallback a names[0]. El zip real trae tres CSV y, alfabeticamente,
+    # diccionario_de_datos va ANTES que conjunto_de_datos: tomar el primero
+    # devolvia el diccionario en vez de los datos, y nada fallaba. Caer al
+    # primero otra vez seria repetir el bug en silencio.
+    raise ValueError(
+        f"Ningun .csv del zip vive bajo conjunto_de_datos/. Encontrados: "
+        f"{names}. Si INEGI cambio la estructura del zip, hay que revisar "
+        f"cual archivo son los datos antes de seguir."
+    )
 
 
 def _extract(
@@ -377,7 +419,7 @@ def _extract(
 uv run pytest -q
 ```
 
-Esperado: PASS, 87 pruebas (76 previas + 11 nuevas).
+Esperado: PASS, 89 pruebas (76 previas + 13 nuevas).
 
 - [ ] **Step 7: Commit**
 
@@ -729,7 +771,7 @@ Esperado: PASS, 4 pruebas.
 uv run pytest -q
 ```
 
-Esperado: PASS, 100 pruebas (76 previas + 11 + 9 + 4).
+Esperado: PASS, 102 pruebas (76 previas + 13 + 9 + 4).
 
 - [ ] **Step 6: Commit**
 
@@ -865,13 +907,18 @@ El score máximo **ya no será 0.35**: con tres variables deja de ser el product
 
 - [ ] **Step 6: Agregar el paso al README**
 
-En la sección de orden de ejecución, insertar entre `02_transporte.py` y `99_score.py`:
+El bloque `bash` de la sección de orden de ejecución ya lleva la línea
+`uv run python scripts/03_denue.py` entre `02_transporte.py` y `99_score.py`.
+
+La obligación de revisión manual va en la sección **`## Revisión manual`**, junto
+a la que ya existe para `station_name_map.csv`, y no suelta en otra parte del
+documento. Agregar ahí este párrafo:
 
 ```markdown
-3. `uv run python scripts/03_denue.py` — descarga el DENUE de INEGI (45 MB) y
-   calcula competencia y atractores comerciales. Tras la primera corrida,
-   revisar `data/interim/competencia_denue.csv`: la lista de cafeterías se
-   arma con un patrón de nombres, que es criterio editorial y no un hecho.
+Tras la primera corrida de `03`, revisar `data/interim/competencia_denue.csv`.
+La lista de cafeterías se arma con un patrón de nombres sobre el código SCIAN
+722515, que es criterio editorial y no un hecho: ese código mezcla cafeterías
+con paleterías y puestos de antojitos.
 ```
 
 - [ ] **Step 7: Commit**
