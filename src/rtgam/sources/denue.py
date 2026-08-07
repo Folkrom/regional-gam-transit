@@ -112,3 +112,54 @@ def _extract(
     if overwrite or not destination.exists():
         destination.write_bytes(zf.read(name))
     return destination
+
+
+COMPETENCIA_SCIAN = "722515"
+
+# Sectores SCIAN que generan peaton de banqueta. Quedan fuera manufactura,
+# mayoreo y transporte: negocios reales, pero nadie camina frente a ellos.
+#   46 comercio al menudeo   23,120 en GAM
+#   72 alojamiento y comida   6,410
+#   62 salud                  2,744
+#   61 educativos             1,399
+#   71 esparcimiento            568
+ATTRACTOR_SECTORS = ("46", "72", "61", "62", "71")
+
+# SCIAN 722515 es "cafeterias, fuentes de sodas, neverias, refresquerias y
+# paleterias". En GAM son 1026 establecimientos y solo 296 parecen cafe: el
+# resto son paleterias, aguas y puestos de antojitos. Usar el codigo crudo
+# inflaria la competencia 3.5 veces y castigaria justo las zonas de mucho
+# peaton, que es lo contrario de lo que el score busca.
+#
+# CAFF esta a proposito: la primera version se comio AMOATO CAFFE EXPRESS.
+#
+# Es un criterio editorial, no un hecho. Por eso 03_denue.py escribe la lista
+# de cruzados a data/interim/ para revision humana.
+COFFEE_PATTERN = (
+    r"CAF[EÉ]|CAFF|COFFEE|ESPRESSO|EXPRESSO|CAPPUCC|CAPUCH|BARIST|"
+    r"TOSTAD|STARBUCK|CIELITO|ITALIAN COFFEE|PUNTA DEL CIELO|MOKA|MOCCA|LATTE"
+)
+
+
+def split_competencia_atractores(
+    gam: pd.DataFrame,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Parte los establecimientos de GAM en competencia y atractores.
+
+    Competencia: SCIAN 722515 cuyo nombre matchea el patron de cafe.
+    Atractores:  sectores de calle, MENOS los de competencia.
+
+    Cada establecimiento cae en exactamente uno de los dos conjuntos, o en
+    ninguno. Nunca en ambos.
+    """
+    codigo = gam["codigo_act"].astype(str)
+    nombre = gam["nom_estab"].astype(str).str.upper()
+
+    es_cafe = codigo.str.startswith(COMPETENCIA_SCIAN) & nombre.str.contains(
+        COFFEE_PATTERN, regex=True, na=False
+    )
+    es_sector_calle = codigo.str[:2].isin(ATTRACTOR_SECTORS)
+
+    competencia = gam[es_cafe]
+    atractores = gam[es_sector_calle & ~es_cafe]
+    return competencia.reset_index(drop=True), atractores.reset_index(drop=True)
