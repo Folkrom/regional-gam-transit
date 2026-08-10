@@ -1483,6 +1483,7 @@ En el orden de corrida, agregar `uv run python scripts/04_osm.py` entre `03_denu
 
 En la sección de limitaciones, agregar las tres del spec, con sus cifras:
 - los polígonos grandes van por su centroide (43 de 1,679 pasan de 400 m de extensión; el Bosque de San Juan de Aragón mide ~1.3 km y sale subestimado);
+- **las canchas y juegos dentro de un parque cuentan aparte**, así que un deportivo con ocho canchas suma nueve atractores. Medido sobre los datos reales de GAM: 297 de 1,679 atractores (17.7%) son `pitch` o `playground` cuyo centroide cae dentro de un parque, jardín o deportivo mayor. Se deja así a propósito —una cancha de barrio sí es un destino peatonal real— pero significa que la variable premia en parte lo finamente que OSM tenga mapeado un sitio, no solo cuánta gente lo camina;
 - los atractores siguen en distancia euclidiana, solo `accesibilidad_peatonal` usa la red;
 - OSM es colaborativo y su cobertura es desigual, así que una colonia poco mapeada sale baja por falta de mapeadores, no de banquetas.
 
