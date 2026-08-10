@@ -409,7 +409,7 @@ git commit -m "feat: alcance por la red con Dijkstra acotado"
 ### Task 3: Enganche de centroides y alcance por hexágono
 
 **Files:**
-- Modify: `src/rtgam/red.py` (agregar `snap_to_nodes` y `reach_by_hex`)
+- Modify: `src/rtgam/red.py` (agregar `snap_to_nodes` y `reach_from_snapped`)
 - Test: `tests/test_red_alcance.py` (agregar casos)
 
 **Interfaces:**
@@ -417,9 +417,10 @@ git commit -m "feat: alcance por la red con Dijkstra acotado"
 - Produces:
   - `snap_to_nodes(graph, centroids, max_snap_m=MAX_SNAP_M, chunk=50) -> pd.Series` — indexada como `centroids`, valores id de nodo o `None` si no hubo enganche.
   - `reach_from_snapped(graph, snapped, cutoff=WALK_CUTOFF_M) -> pd.Series` — indexada como `snapped`, floats, sin NaN.
-  - `reach_by_hex(graph, centroids, cutoff=WALK_CUTOFF_M, max_snap_m=MAX_SNAP_M) -> pd.Series` — composición de las dos anteriores.
 
-Son tres funciones y no una porque el enganche es la parte cara: 200 mil nodos por 724 centroides. El script necesita el enganche para reportar los hexágonos sin calle cerca, y necesita el alcance. Con una sola función tendría que enganchar dos veces.
+Son dos funciones y no una porque el enganche es la parte cara: 200 mil nodos por 724 centroides. El script necesita la Series de enganches para reportar los hexágonos sin calle cerca, **y** necesita el alcance. Con una sola función tendría que enganchar dos veces.
+
+**No agregues una función `reach_by_hex` que las componga.** Se consideró y se quitó: nadie la llamaría más que las pruebas, y una función que solo existe para ser probada es código muerto.
   - `centroids` es un DataFrame indexado por `hex_id` con columnas `lat` y `lon`, igual que devuelve `rtgam.geo.hex_centroids`.
 
 - [ ] **Step 1: Escribir las pruebas que fallan**
@@ -429,7 +430,12 @@ Agregar al final de `tests/test_red_alcance.py`:
 ```python
 import pandas as pd
 
-from rtgam.red import MAX_SNAP_M, reach_by_hex, reach_from_snapped, snap_to_nodes
+from rtgam.red import MAX_SNAP_M, reach_from_snapped, snap_to_nodes
+
+
+def alcance_de(graph, cent):
+    """Las dos partes juntas, tal como las encadena scripts/04_osm.py."""
+    return reach_from_snapped(graph, snap_to_nodes(graph, cent))
 
 
 def grafo_con_coords():
@@ -479,19 +485,9 @@ def test_el_alcance_por_hexagono_respeta_el_enganche():
     cent = centroides(
         [("cerca", 19.50005, -99.09995), ("lejos", 19.50540, -99.1000)]
     )
-    alcance = reach_by_hex(graph, cent)
+    alcance = alcance_de(graph, cent)
     assert alcance.loc["cerca"] == pytest.approx(104.8)
     assert alcance.loc["lejos"] == pytest.approx(0.0)
-
-
-def test_reach_by_hex_es_la_composicion_de_las_dos_partes():
-    # El script llama a las dos por separado para no enganchar dos veces, asi
-    # que las dos rutas tienen que dar lo mismo.
-    graph = grafo_con_coords()
-    cent = centroides([("cerca", 19.50005, -99.09995), ("lejos", 19.50540, -99.1000)])
-    directo = reach_by_hex(graph, cent)
-    por_partes = reach_from_snapped(graph, snap_to_nodes(graph, cent))
-    assert directo.to_dict() == por_partes.to_dict()
 
 
 def test_el_alcance_por_hexagono_no_trae_nan():
@@ -499,7 +495,7 @@ def test_el_alcance_por_hexagono_no_trae_nan():
     # producto punto ensucia todos los hexagonos, no solo el suyo.
     graph = grafo_con_coords()
     cent = centroides([("a", 19.50005, -99.09995), ("b", 19.5100, -99.1000)])
-    alcance = reach_by_hex(graph, cent)
+    alcance = alcance_de(graph, cent)
     assert not alcance.isna().any()
     assert list(alcance.index) == ["a", "b"]
 
@@ -516,7 +512,7 @@ def test_el_troceado_no_cambia_el_resultado():
 
 
 def test_un_grafo_vacio_da_alcance_cero_sin_lanzar():
-    alcance = reach_by_hex(nx.Graph(), centroides([("a", 19.5, -99.1)]))
+    alcance = alcance_de(nx.Graph(), centroides([("a", 19.5, -99.1)]))
     assert alcance.loc["a"] == pytest.approx(0.0)
 ```
 
@@ -525,7 +521,7 @@ def test_un_grafo_vacio_da_alcance_cero_sin_lanzar():
 Run: `uv run pytest tests/test_red_alcance.py -v`
 Expected: FAIL con `ImportError: cannot import name 'snap_to_nodes'`
 
-- [ ] **Step 3: Implementar `snap_to_nodes` y `reach_by_hex`**
+- [ ] **Step 3: Implementar `snap_to_nodes` y `reach_from_snapped`**
 
 Agregar al final de `src/rtgam/red.py`:
 
@@ -582,10 +578,10 @@ def reach_from_snapped(
 ) -> pd.Series:
     """Alcance de cada hexagono a partir de su nodo ya enganchado.
 
-    Va separada de reach_by_hex porque el enganche es la parte cara —200 mil
-    nodos por 724 centroides— y el script necesita la Series de enganches para
-    reportar cuantos hexagonos se quedaron sin calle cerca. Con una sola
-    funcion habria que engancharlos dos veces.
+    Va separada del enganche porque enganchar es la parte cara —200 mil nodos
+    por 724 centroides— y el script necesita las dos cosas: la Series de
+    enganches, para reportar cuantos hexagonos se quedaron sin calle cerca, y
+    el alcance. Con una sola funcion habria que engancharlos dos veces.
 
     Los hexagonos sin enganche dan 0.0, no NaN: merge_features lanza ante
     cualquier NaN de una fuente, y aqui el cero es informacion real (no hay
@@ -595,17 +591,6 @@ def reach_from_snapped(
         0.0 if node is None else reach_m(graph, node, cutoff=cutoff) for node in snapped
     ]
     return pd.Series(values, index=snapped.index, dtype=float)
-
-
-def reach_by_hex(
-    graph: nx.Graph,
-    centroids: pd.DataFrame,
-    cutoff: float = WALK_CUTOFF_M,
-    max_snap_m: float = MAX_SNAP_M,
-) -> pd.Series:
-    """Metros de calle alcanzables desde el centroide de cada hexagono."""
-    snapped = snap_to_nodes(graph, centroids, max_snap_m=max_snap_m)
-    return reach_from_snapped(graph, snapped, cutoff=cutoff)
 ```
 
 - [ ] **Step 4: Correr las pruebas**
@@ -1165,7 +1150,7 @@ git commit -m "feat: parseo de atractores de OSM con exclusion de conservacion"
 - Test: `tests/test_osm_hexes.py`
 
 **Interfaces:**
-- Consumes: `rtgam.geo.accumulate_decay(centroids, points, value_col, tau, cutoff) -> pd.Series`; `attractors_from_overpass` de la Task 5; `reach_by_hex` de la Task 3.
+- Consumes: `rtgam.geo.accumulate_decay(centroids, points, value_col, tau, cutoff) -> pd.Series`; `attractors_from_overpass` de la Task 5; `reach_from_snapped` de la Task 3.
 - Produces: `to_hex_features(gam_hexes: pd.DataFrame, alcance: pd.Series, atractores: pd.DataFrame) -> pd.DataFrame` indexado por `hex_id` con exactamente las columnas `accesibilidad_peatonal` y `atractores_osm`.
 
 - [ ] **Step 1: Escribir las pruebas que fallan**
@@ -1331,7 +1316,7 @@ git commit -m "feat: contrato de la fuente OSM con las dos columnas crudas"
 - Modify: `HANDOFF.md` (estado y pendientes)
 
 **Interfaces:**
-- Consumes: `rtgam.boundary.fetch_gam_polygon(cache_path, force) -> BaseGeometry`; `rtgam.red.build_graph`, `reach_by_hex`; `rtgam.sources.osm.build_network_query`, `build_attractor_query`, `fetch_overpass`, `attractors_from_overpass`, `to_hex_features`.
+- Consumes: `rtgam.boundary.fetch_gam_polygon(cache_path, force) -> BaseGeometry`; `rtgam.red.build_graph`, `snap_to_nodes`, `reach_from_snapped`; `rtgam.sources.osm.build_network_query`, `build_attractor_query`, `fetch_overpass`, `attractors_from_overpass`, `to_hex_features`.
 - Produces: `data/processed/osm.parquet`. `99_score.py` ya lista ese nombre en `SOURCE_FILES`, así que no hay que tocarlo.
 
 **Nota de ejecución:** la descarga de la red son 40-60 MB de JSON y Overpass tarda. **Correr en primer plano**, nunca en background: tres agentes ya perdieron su trabajo así, porque el proceso muere con su padre.
@@ -1424,7 +1409,7 @@ def main() -> None:
     hexes = pd.read_parquet(HEXES)
 
     # El enganche se calcula UNA vez y se reusa: es la parte cara del script,
-    # 200 mil nodos por 724 centroides. Por eso no se llama a reach_by_hex.
+    # 200 mil nodos por 724 centroides.
     enganches = snap_to_nodes(graph, hexes)
     sin_enganche = int(enganches.isna().sum())
     print(
