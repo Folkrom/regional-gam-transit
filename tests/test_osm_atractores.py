@@ -99,3 +99,19 @@ def test_un_payload_vacio_da_un_frame_vacio_con_columnas():
     frame = attractors_from_overpass({"elements": []})
     assert len(frame) == 0
     assert list(frame.columns) == ATTRACTOR_COLUMNS
+
+
+def test_precedencia_de_etiquetas_cuando_un_elemento_tiene_varias():
+    # Una plaza con tianguis permanente es real en CDMX: place=square + amenity=marketplace.
+    # El orden de ATTRACTOR_TAGS fija cual gana. Marketplace viene antes que square
+    # porque un atractor comercial (generador de afluencia por transacciones) es mas
+    # funcional y relevante para ubicar una cafeteria que el hecho geometrico de ser
+    # una plaza. La senal de trafico de una plaza COMO marketplace es mas fuerte.
+    payload = {
+        "elements": [
+            nodo(1, {"place": "square", "amenity": "marketplace", "name": "Tianguis de GAM"}),
+        ]
+    }
+    frame = attractors_from_overpass(payload)
+    assert len(frame) == 1
+    assert frame.iloc[0]["osm_kind"] == "marketplace"
