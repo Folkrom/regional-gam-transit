@@ -13,6 +13,7 @@ import pandas as pd
 import requests
 
 from rtgam import USER_AGENT
+from rtgam.geo import accumulate_decay
 
 OVERPASS_URLS = (
     "https://overpass-api.de/api/interpreter",
@@ -224,3 +225,36 @@ def fetch_overpass(query: str, cache_path: Path, force: bool = False) -> dict:
     raise RuntimeError(
         f"Overpass fallo tras {OVERPASS_RETRIES} intentos en {len(OVERPASS_URLS)} espejos"
     ) from last_error
+
+
+def to_hex_features(
+    gam_hexes: pd.DataFrame,
+    alcance: pd.Series,
+    atractores: pd.DataFrame,
+) -> pd.DataFrame:
+    """Emite las dos columnas que esta fuente posee.
+
+    gam_hexes:  indexado por hex_id, columnas lat y lon.
+    alcance:    Series indexada por hex_id, metros de calle alcanzables.
+    atractores: columnas osm_kind, name, lat, lon.
+    Devuelve:   DataFrame indexado por hex_id con accesibilidad_peatonal y
+                atractores_osm, en valores CRUDOS y sin normalizar.
+
+    Cada atractor vale 1.0, igual que cada establecimiento en DENUE, donde
+    ponderar por tamano resulto contraproducente: los gigantes eran destinos de
+    coche y concentraban una cuarta parte de la variable.
+    """
+    if not alcance.index.equals(gam_hexes.index):
+        raise ValueError(
+            "El indice del alcance no coincide con el de los hexagonos. "
+            "Reindexar en silencio convertiria un bug de indice en ceros "
+            "plausibles, que es peor que fallar."
+        )
+
+    puntos = atractores.assign(peso=1.0)
+    return pd.DataFrame(
+        {
+            "accesibilidad_peatonal": alcance.astype(float),
+            "atractores_osm": accumulate_decay(gam_hexes, puntos, value_col="peso"),
+        }
+    )
