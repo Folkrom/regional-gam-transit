@@ -92,3 +92,70 @@ def reach_m(graph: nx.Graph, source, cutoff: float = WALK_CUTOFF_M) -> float:
     )
     subgraph = graph.subgraph(reachable.keys())
     return float(sum(length for _, _, length in subgraph.edges(data="length")))
+
+
+def snap_to_nodes(
+    graph: nx.Graph,
+    centroids: pd.DataFrame,
+    max_snap_m: float = MAX_SNAP_M,
+    chunk: int = 50,
+) -> pd.Series:
+    """Engancha cada centroide al nodo del grafo mas cercano.
+
+    centroids: indexado por hex_id, columnas lat y lon.
+    Devuelve: Series alineada con centroids, con el id del nodo o None si el
+              mas cercano quedo a mas de max_snap_m.
+
+    El None no es un descuido, es la guardia: un centroide a mas de 500 m de
+    cualquier calle esta en el cerro o en el relleno. Engancharlo a la fuerza
+    fabricaria accesibilidad al otro lado de una barrera, que es justo el tipo
+    de numero equivocado y silencioso que ya costo caro en este proyecto.
+
+    Va por bloques de hexagonos a proposito. La matriz completa serian 200 mil
+    nodos por 724 centroides, ~1.2 GB, y haversine_m mantiene unas seis vivas a
+    la vez: unos 7 GB. En DENUE ya se midio que el pico real de ese patron es
+    muy superior a la cuenta ingenua.
+    """
+    if graph.number_of_nodes() == 0 or len(centroids) == 0:
+        return pd.Series([None] * len(centroids), index=centroids.index, dtype=object)
+
+    node_ids = list(graph.nodes)
+    node_lat = np.array([graph.nodes[n]["lat"] for n in node_ids], dtype=float)
+    node_lon = np.array([graph.nodes[n]["lon"] for n in node_ids], dtype=float)
+
+    hex_lat = centroids["lat"].to_numpy(dtype=float)
+    hex_lon = centroids["lon"].to_numpy(dtype=float)
+
+    matched: list = []
+    for start in range(0, len(centroids), chunk):
+        block_lat = hex_lat[start : start + chunk]
+        block_lon = hex_lon[start : start + chunk]
+        distances = haversine_m(
+            block_lat[:, None], block_lon[:, None], node_lat[None, :], node_lon[None, :]
+        )
+        nearest = distances.argmin(axis=1)
+        nearest_distance = distances[np.arange(len(block_lat)), nearest]
+        for position, distance in zip(nearest, nearest_distance):
+            matched.append(node_ids[position] if distance <= max_snap_m else None)
+
+    return pd.Series(matched, index=centroids.index, dtype=object)
+
+
+def reach_from_snapped(
+    graph: nx.Graph, snapped: pd.Series, cutoff: float = WALK_CUTOFF_M
+) -> pd.Series:
+    """Alcance de cada hexagono a partir de su nodo ya enganchado.
+
+    Va separada del enganche porque enganchar es la parte cara —200 mil nodos
+    por 724 centroides— y el script necesita las dos cosas: la Series de
+    enganches, para reportar cuantos hexagonos se quedaron sin calle cerca, y
+    el alcance. Con una sola funcion habria que engancharlos dos veces.
+
+    Los hexagonos sin enganche dan 0.0, no NaN: merge_features lanza ante
+    cualquier NaN de una fuente, y aqui el cero es informacion real (no hay
+    calle a menos de 500 m), no un hueco de join.
+    """
+    values = [
+        0.0 if node is None else reach_m(graph, node, cutoff=cutoff) for node in snapped
+    ]
+    return pd.Series(values, index=snapped.index, dtype=float)

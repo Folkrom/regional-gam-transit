@@ -50,3 +50,91 @@ def test_un_nodo_aislado_alcanza_cero():
 
 def test_el_corte_por_defecto_son_800_metros():
     assert WALK_CUTOFF_M == 800.0
+
+
+import pandas as pd
+
+from rtgam.red import MAX_SNAP_M, reach_from_snapped, snap_to_nodes
+
+
+def alcance_de(graph, cent):
+    """Las dos partes juntas, tal como las encadena scripts/04_osm.py."""
+    return reach_from_snapped(graph, snap_to_nodes(graph, cent))
+
+
+def grafo_con_coords():
+    """Dos calles separadas: una cerca del hexagono A, otra lejos."""
+    graph = nx.Graph()
+    graph.add_node(1, lat=19.5000, lon=-99.1000)
+    graph.add_node(2, lat=19.5000, lon=-99.0990)  # ~104.8 m al este del 1
+    graph.add_edge(1, 2, length=104.8)
+    return graph
+
+
+def centroides(filas):
+    frame = pd.DataFrame(filas, columns=["hex_id", "lat", "lon"])
+    return frame.set_index("hex_id")
+
+
+def test_el_centroide_se_engancha_al_nodo_mas_cercano():
+    graph = grafo_con_coords()
+    cent = centroides([("a", 19.50005, -99.0990)])
+    enganche = snap_to_nodes(graph, cent)
+    assert enganche.loc["a"] == 2
+
+
+def test_un_centroide_a_600_metros_no_se_engancha():
+    # 0.0054 grados de latitud son ~600 m: pasado el umbral, pero cerca de el.
+    # Un caso a 5 km probaria mucho menos.
+    graph = grafo_con_coords()
+    cent = centroides([("lejos", 19.50540, -99.1000)])
+    enganche = snap_to_nodes(graph, cent)
+    assert enganche.loc["lejos"] is None
+
+
+def test_un_centroide_a_400_metros_si_se_engancha():
+    # El control positivo del umbral. Sin esta prueba, un snap_to_nodes que
+    # devolviera None siempre pasaria la prueba de arriba.
+    graph = grafo_con_coords()
+    cent = centroides([("cerca", 19.50360, -99.1000)])
+    assert snap_to_nodes(graph, cent).loc["cerca"] == 1
+
+
+def test_el_enganche_maximo_son_500_metros():
+    assert MAX_SNAP_M == 500.0
+
+
+def test_el_alcance_por_hexagono_respeta_el_enganche():
+    graph = grafo_con_coords()
+    cent = centroides(
+        [("cerca", 19.50005, -99.09995), ("lejos", 19.50540, -99.1000)]
+    )
+    alcance = alcance_de(graph, cent)
+    assert alcance.loc["cerca"] == pytest.approx(104.8)
+    assert alcance.loc["lejos"] == pytest.approx(0.0)
+
+
+def test_el_alcance_por_hexagono_no_trae_nan():
+    # merge_features lanza si una fuente trae NaN, y con razon: un NaN en el
+    # producto punto ensucia todos los hexagonos, no solo el suyo.
+    graph = grafo_con_coords()
+    cent = centroides([("a", 19.50005, -99.09995), ("b", 19.5100, -99.1000)])
+    alcance = alcance_de(graph, cent)
+    assert not alcance.isna().any()
+    assert list(alcance.index) == ["a", "b"]
+
+
+def test_el_troceado_no_cambia_el_resultado():
+    # El calculo va por bloques para no armar una matriz de 200k nodos por 724
+    # centroides de golpe. El tamano del bloque es una decision de memoria y no
+    # debe alterar ni un resultado.
+    graph = grafo_con_coords()
+    cent = centroides([(f"h{i}", 19.50005, -99.09995) for i in range(7)])
+    assert list(snap_to_nodes(graph, cent, chunk=1)) == list(
+        snap_to_nodes(graph, cent, chunk=100)
+    )
+
+
+def test_un_grafo_vacio_da_alcance_cero_sin_lanzar():
+    alcance = alcance_de(nx.Graph(), centroides([("a", 19.5, -99.1)]))
+    assert alcance.loc["a"] == pytest.approx(0.0)
