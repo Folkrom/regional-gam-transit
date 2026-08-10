@@ -3,6 +3,7 @@
 import json
 
 import pytest
+import requests
 
 from rtgam.sources.osm import (
     build_attractor_query,
@@ -99,3 +100,68 @@ def test_una_cache_corrupta_lanza_con_el_remedio(tmp_path):
     cache.write_text("{esto no es json")
     with pytest.raises(ValueError, match="--force"):
         fetch_overpass("[out:json];out count;", cache)
+
+
+def test_un_400_se_propaga_sin_reintentar(tmp_path, monkeypatch):
+    """Un error 4xx propio (excepto 429) se propaga sin reintentar."""
+
+    class Respuesta400:
+        status_code = 400
+
+        def raise_for_status(self):
+            error = requests.HTTPError()
+            error.response = self
+            raise error
+
+    post_call_count = 0
+
+    def falso_post(*args, **kwargs):
+        nonlocal post_call_count
+        post_call_count += 1
+        return Respuesta400()
+
+    monkeypatch.setattr("rtgam.sources.osm.requests.post", falso_post)
+
+    cache = tmp_path / "osm.json"
+    with pytest.raises(requests.HTTPError):
+        fetch_overpass("[out:json];out count;", cache)
+
+    # Se intenta una sola vez (1 espejo antes de fallar)
+    assert post_call_count == 1, f"Esperaba 1 llamada a post para 400, got {post_call_count}"
+
+
+def test_un_429_reintenta_hasta_agotar(tmp_path, monkeypatch):
+    """Un error 429 se reintenta hasta agotar OVERPASS_RETRIES * OVERPASS_URLS."""
+
+    class Respuesta429:
+        status_code = 429
+
+        def raise_for_status(self):
+            error = requests.HTTPError()
+            error.response = self
+            raise error
+
+    post_call_count = 0
+    sleep_call_count = 0
+
+    def falso_post(*args, **kwargs):
+        nonlocal post_call_count
+        post_call_count += 1
+        return Respuesta429()
+
+    def falso_sleep(_s):
+        nonlocal sleep_call_count
+        sleep_call_count += 1
+
+    monkeypatch.setattr("rtgam.sources.osm.requests.post", falso_post)
+    monkeypatch.setattr("rtgam.sources.osm.time.sleep", falso_sleep)
+
+    cache = tmp_path / "osm.json"
+    with pytest.raises(RuntimeError, match="fallo tras"):
+        fetch_overpass("[out:json];out count;", cache)
+
+    # 3 intentos × 2 espejos = 6 llamadas a post
+    assert post_call_count == 6, f"Esperaba 6 llamadas a post (3 intentos × 2 espejos), got {post_call_count}"
+
+    # 2 llamadas a sleep (después del intento 0 y 1, no después del 2)
+    assert sleep_call_count == 2, f"Esperaba 2 llamadas a sleep (entre intentos), got {sleep_call_count}"
