@@ -75,16 +75,32 @@ del dashboard.
   Arreglarlo del todo no es posible con este archivo, que solo cubre la CDMX:
   los bordes norte y oriente, contra Tlalnepantla, Ecatepec y Nezahualcóyotl,
   seguirían ciegos.
-- Los polígonos grandes de OSM van por su centroide (43 de 1,679 pasan de
-  400 m de extensión; el Bosque de San Juan de Aragón mide ~1.3 km y sale
-  subestimado).
+- Los polígonos grandes de OSM van por su centroide, así que el Bosque de San
+  Juan de Aragón (~1.3 km de largo) sale subestimado. Cuántos polígonos pasan
+  de 400 m de extensión no se midió sobre la corrida vigente (1,801
+  atractores, sin geometría: la consulta pide `out tags center` a propósito,
+  para no bajar de más). El único dato disponible es de una extracción aparte
+  hecha durante el diseño, con una consulta de puros `way` y `out geom` sobre
+  una población distinta de 1,679 polígonos con geometría (sin nodos sueltos
+  ni relations): 43 de esos 1,679 pasaban de 400 m. Sirve como orden de
+  magnitud de que el problema existe, no como conteo de los 1,801 atractores
+  reales de esta corrida.
 - Las canchas y juegos dentro de un parque cuentan aparte, así que un
-  deportivo con ocho canchas suma nueve atractores. Medido sobre los datos
-  reales de GAM: 297 de 1,679 atractores (17.7%) son `pitch` o `playground`
-  cuyo centroide cae dentro de un parque, jardín o deportivo mayor. Se deja
-  así a propósito —una cancha de barrio sí es un destino peatonal real—
-  pero significa que la variable premia en parte lo finamente que OSM tenga
-  mapeado un sitio, no solo cuánta gente lo camina.
+  deportivo con ocho canchas suma nueve atractores. Sobre los 1,801 atractores
+  reales de esta corrida (`data/raw/osm_atractores.json`), 663 son `pitch` y
+  149 son `playground`: 812 en total, 45.1% del conteo. Cuántos de esos caen
+  *dentro* de un parque, jardín o deportivo mayor no se puede recalcular
+  contra esta población porque haría falta la geometría de los polígonos
+  contenedores, que esta consulta no descarga. El único dato de anidamiento
+  que existe es de la misma extracción aparte de 1,679 polígonos con
+  geometría mencionada arriba: ahí, 297 (17.7%) de los `pitch`/`playground`
+  tenían su centroide dentro de un parque, jardín o deportivo mayor. Es orden
+  de magnitud, no una cifra de la corrida actual; no se recalculó, ni se
+  extrapoló con una regla de tres, porque no hay geometría con la que
+  medirla. Se deja así a propósito —una cancha de barrio sí es un destino
+  peatonal real— pero el patrón, cuando existe, significa que la variable
+  premia en parte lo finamente que OSM tenga mapeado un sitio, no solo cuánta
+  gente lo camina.
 - Los atractores siguen en distancia euclidiana; solo `accesibilidad_peatonal`
   usa la red.
 - OSM es colaborativo y su cobertura es desigual, así que una colonia poco
