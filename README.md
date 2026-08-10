@@ -31,6 +31,7 @@ Todo lo demás se descarga solo.
 uv run python scripts/01_build_grid.py
 uv run python scripts/02_transporte.py
 uv run python scripts/03_denue.py
+uv run python scripts/04_osm.py
 uv run python scripts/99_score.py
 uv run streamlit run app/dashboard.py
 ```
@@ -61,9 +62,10 @@ del dashboard.
 - Las distancias son euclidianas y no conocen barreras. El cerro del
   Chiquihuite, el Río de los Remedios y la autopista México-Pachuca hacen
   que los hexágonos detrás de ellas salgan sobrevalorados.
-- De las **siete** variables de `config/weights.yaml` hay datos de tres:
-  `flujo_transporte`, `competencia` y `atractores_denue`. Faltan cuatro:
-  `accesibilidad_peatonal` y `atractores_osm` (los aporta OSM), y
+- De las **siete** variables de `config/weights.yaml` hay datos de cinco:
+  `flujo_transporte`, `competencia`, `atractores_denue`,
+  `accesibilidad_peatonal` (OSM, alcance a 800 m por la red) y
+  `atractores_osm` (OSM, espacio publico y transporte). Faltan dos:
   `densidad_pob` y `nivel_socioeconomico` (los aporta el censo).
 - DENUE se filtra por alcaldía, no por geometría, así que los negocios justo
   afuera del límite de GAM no cuentan aunque estén a menos de 800 m de un
@@ -73,5 +75,19 @@ del dashboard.
   Arreglarlo del todo no es posible con este archivo, que solo cubre la CDMX:
   los bordes norte y oriente, contra Tlalnepantla, Ecatepec y Nezahualcóyotl,
   seguirían ciegos.
+- Los polígonos grandes de OSM van por su centroide (43 de 1,679 pasan de
+  400 m de extensión; el Bosque de San Juan de Aragón mide ~1.3 km y sale
+  subestimado).
+- Las canchas y juegos dentro de un parque cuentan aparte, así que un
+  deportivo con ocho canchas suma nueve atractores. Medido sobre los datos
+  reales de GAM: 297 de 1,679 atractores (17.7%) son `pitch` o `playground`
+  cuyo centroide cae dentro de un parque, jardín o deportivo mayor. Se deja
+  así a propósito —una cancha de barrio sí es un destino peatonal real—
+  pero significa que la variable premia en parte lo finamente que OSM tenga
+  mapeado un sitio, no solo cuánta gente lo camina.
+- Los atractores siguen en distancia euclidiana; solo `accesibilidad_peatonal`
+  usa la red.
+- OSM es colaborativo y su cobertura es desigual, así que una colonia poco
+  mapeada sale baja por falta de mapeadores, no de banquetas.
 - No hay ground truth: esto prioriza dónde mirar, no predice que un negocio
   funcione.
