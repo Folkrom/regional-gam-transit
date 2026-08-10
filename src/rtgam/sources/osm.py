@@ -9,6 +9,7 @@ import json
 import time
 from pathlib import Path
 
+import pandas as pd
 import requests
 
 from rtgam import USER_AGENT
@@ -77,6 +78,75 @@ def build_attractor_query(bbox: tuple[float, float, float, float]) -> str:
 );
 out tags center;
 """
+
+
+ATTRACTOR_COLUMNS = ["osm_kind", "name", "lat", "lon"]
+
+# Suelo de conservacion. La Sierra de Guadalupe viene etiquetada a la vez como
+# parque y como area protegida, asi que no basta con no pedirla: hay que
+# descartarla explicitamente al parsear.
+EXCLUDED_TAGS = {
+    "boundary": {"protected_area"},
+    "leisure": {"nature_reserve"},
+    "natural": {"wood", "scrub", "heath"},
+}
+
+# Etiqueta -> tipo de atractor. El orden importa: el primero que cruce gana.
+ATTRACTOR_TAGS = (
+    ("leisure", {"park", "garden", "pitch", "playground", "sports_centre"}),
+    ("amenity", {"marketplace"}),
+    ("place", {"square"}),
+    ("railway", {"station"}),
+    ("aerialway", {"station"}),
+    ("public_transport", {"station"}),
+)
+
+
+def attractor_kind(tags: dict) -> str | None:
+    """Tipo de atractor de un elemento, o None si no es ninguno.
+
+    Devuelve el valor de la etiqueta, no la etiqueta: un parque es "park" y una
+    estacion es "station", que es lo que sirve para el conteo por tipo que el
+    script imprime.
+    """
+    for key, values in EXCLUDED_TAGS.items():
+        if tags.get(key) in values:
+            return None
+
+    for key, values in ATTRACTOR_TAGS:
+        value = tags.get(key)
+        if value in values:
+            return value
+
+    return None
+
+
+def attractors_from_overpass(payload: dict) -> pd.DataFrame:
+    """Convierte una respuesta de Overpass en un DataFrame de atractores.
+
+    Acepta node, way y relation. Los nodos traen lat/lon propias; ways y
+    relations traen `center`, porque la consulta pide `out tags center`.
+
+    Un elemento sin coordenadas no se puede ubicar en el mapa, asi que se
+    descarta.
+    """
+    rows = []
+    for element in payload.get("elements", []):
+        kind = attractor_kind(element.get("tags", {}))
+        if kind is None:
+            continue
+
+        if "lat" in element and "lon" in element:
+            lat, lon = element["lat"], element["lon"]
+        elif "center" in element:
+            lat, lon = element["center"]["lat"], element["center"]["lon"]
+        else:
+            continue
+
+        name = element.get("tags", {}).get("name", "")
+        rows.append((kind, name, float(lat), float(lon)))
+
+    return pd.DataFrame(rows, columns=ATTRACTOR_COLUMNS)
 
 
 def validate_payload(payload: dict) -> dict:
