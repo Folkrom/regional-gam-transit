@@ -65,3 +65,30 @@ def build_graph(payload: dict) -> nx.Graph:
             graph.add_edge(a, b, length=length)
 
     return graph
+
+
+# Mismo corte que el kernel de decaimiento de geo.py, pero medido por la red y
+# no en linea recta. 800 m son unos diez minutos caminando.
+WALK_CUTOFF_M = 800.0
+
+# Si el nodo mas cercano a un centroide queda mas lejos que esto, el hexagono
+# se reporta sin enganche en vez de pegarse a la fuerza. Ver snap_to_nodes.
+MAX_SNAP_M = 500.0
+
+
+def reach_m(graph: nx.Graph, source, cutoff: float = WALK_CUTOFF_M) -> float:
+    """Metros de calle alcanzables desde `source` recorriendo `cutoff` por la red.
+
+    Suma la longitud de las aristas con AMBOS extremos dentro del corte. Ambos,
+    no uno: una arista de 400 m que se sale del radio no es calle alcanzada.
+    El subgrafo inducido de networkx ya aplica exactamente esa regla.
+
+    Es reach centrality de Urban Network Analysis. Se prefirio sobre
+    betweenness porque betweenness exacta sobre este grafo son horas, y porque
+    sobre un grafo recortado infla las rutas que cruzan el corte.
+    """
+    reachable = nx.single_source_dijkstra_path_length(
+        graph, source, cutoff=cutoff, weight="length"
+    )
+    subgraph = graph.subgraph(reachable.keys())
+    return float(sum(length for _, _, length in subgraph.edges(data="length")))
