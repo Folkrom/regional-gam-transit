@@ -56,7 +56,6 @@ import pandas as pd
 
 from rtgam.red import (
     MAX_SNAP_M,
-    component_size_by_hex,
     reach_from_snapped,
     snap_to_nodes,
 )
@@ -163,27 +162,45 @@ def grafo_con_isla():
     return graph
 
 
-def test_el_tamano_de_componente_distingue_la_isla_de_la_red_grande():
-    # El hexagono de arriba se engancha al fragmento suelto porque le queda mas
-    # cerca en linea recta, y su alcance sale minusculo sin que nada lo diga.
-    # El tamano de componente es lo que hace visible esa condicion.
+def grafo_con_isla_cercana():
+    """La misma calle de cuatro nodos, con la isla a solo ~111 m al norte."""
+    graph = nx.Graph()
+    for node_id, lon in enumerate([-99.1000, -99.0990, -99.0980, -99.0970], start=1):
+        graph.add_node(node_id, lat=19.5000, lon=lon)
+    for a, b in [(1, 2), (2, 3), (3, 4)]:
+        graph.add_edge(a, b, length=104.8)
+
+    graph.add_node(10, lat=19.5010, lon=-99.0990)
+    graph.add_node(11, lat=19.5010, lon=-99.0980)
+    graph.add_edge(10, 11, length=104.8)
+    return graph
+
+
+def test_el_enganche_ignora_los_fragmentos_sueltos_de_la_red():
+    # El centroide tiene la isla a ~5 m y la calle grande a ~106 m, y aun asi se
+    # engancha a la calle grande. Medir alcance sobre un fragmento de dos nodos
+    # no mide caminabilidad: mide un hueco de OSM. En GAM real esto le pasaba a
+    # un hexagono, que se quedaba con 648 m de calle alcanzable cuando un nodo
+    # 53 m mas lejos daba 17,579 m, y de paso anclaba el piso del min-max de
+    # todos los demas.
+    graph = grafo_con_isla_cercana()
+    cent = centroides([("a", 19.50095, -99.0990)])
+    assert snap_to_nodes(graph, cent).loc["a"] == 2
+
+
+def test_el_alcance_sale_de_la_red_grande_no_del_fragmento():
+    # El control del anterior: la isla daria 104.8 m, la calle grande 314.4.
+    graph = grafo_con_isla_cercana()
+    cent = centroides([("a", 19.50095, -99.0990)])
+    assert alcance_de(graph, cent).loc["a"] == pytest.approx(314.4)
+
+
+def test_la_guardia_de_500_metros_sigue_valiendo_sobre_la_componente_mayor():
+    # Aqui la isla queda encima del centroide y la calle grande a ~556 m. No se
+    # engancha a ninguna de las dos: preferir la componente mayor no autoriza a
+    # cruzar medio kilometro de barranca para encontrarla.
     graph = grafo_con_isla()
-    cent = centroides([("isla", 19.5050, -99.09995), ("calle", 19.5000, -99.09995)])
-    tamanos = component_size_by_hex(graph, snap_to_nodes(graph, cent))
-    assert tamanos.loc["isla"] == 2
-    assert tamanos.loc["calle"] == 4
-
-
-def test_un_hexagono_sin_enganche_reporta_componente_cero():
-    graph = grafo_con_isla()
-    cent = centroides([("lejos", 19.5200, -99.1000)])
-    tamanos = component_size_by_hex(graph, snap_to_nodes(graph, cent))
-    assert tamanos.loc["lejos"] == 0
-
-
-def test_el_tamano_de_componente_conserva_el_indice_de_los_hexagonos():
-    graph = grafo_con_isla()
-    cent = centroides([("a", 19.5000, -99.0970), ("b", 19.5050, -99.1000)])
-    tamanos = component_size_by_hex(graph, snap_to_nodes(graph, cent))
-    assert list(tamanos.index) == ["a", "b"]
-    assert not tamanos.isna().any()
+    cent = centroides([("isla", 19.5050, -99.09995)])
+    enganche = snap_to_nodes(graph, cent)
+    assert enganche.loc["isla"] is None
+    assert alcance_de(graph, cent).loc["isla"] == pytest.approx(0.0)

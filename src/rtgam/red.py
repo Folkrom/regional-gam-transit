@@ -100,7 +100,7 @@ def snap_to_nodes(
     max_snap_m: float = MAX_SNAP_M,
     chunk: int = 50,
 ) -> pd.Series:
-    """Engancha cada centroide al nodo del grafo mas cercano.
+    """Engancha cada centroide al nodo mas cercano de la componente mayor.
 
     centroids: indexado por hex_id, columnas lat y lon.
     Devuelve: Series alineada con centroids, con el id del nodo o None si el
@@ -111,6 +111,19 @@ def snap_to_nodes(
     fabricaria accesibilidad al otro lado de una barrera, que es justo el tipo
     de numero equivocado y silencioso que ya costo caro en este proyecto.
 
+    Solo se consideran los nodos de la componente conexa mayor. OSM trae
+    fragmentos: calles reales digitalizadas sin unirlas al resto de la red. En
+    GAM son 112 componentes, y la mayor cubre 134,545 de 135,894 nodos. Un
+    centroide que caia junto a uno de esos fragmentos recibia el alcance de la
+    isla —648 m contra los 17,579 m del nodo 53 m mas lejos que si estaba en la
+    red—, un numero plausible, sin excepcion y sin aviso. Eso no mide
+    caminabilidad, mide un hueco de OSM, y como la normalizacion es min-max ese
+    minimo falso arrastraba tambien a los demas hexagonos.
+
+    Preferir la componente mayor NO relaja la guardia de los 500 m: si el nodo
+    mas cercano de esa componente queda mas lejos, el hexagono se queda sin
+    enganche.
+
     Va por bloques de hexagonos a proposito. La matriz completa serian 200 mil
     nodos por 724 centroides, ~1.2 GB, y haversine_m mantiene unas seis vivas a
     la vez: unos 7 GB. En DENUE ya se midio que el pico real de ese patron es
@@ -119,7 +132,7 @@ def snap_to_nodes(
     if graph.number_of_nodes() == 0 or len(centroids) == 0:
         return pd.Series([None] * len(centroids), index=centroids.index, dtype=object)
 
-    node_ids = list(graph.nodes)
+    node_ids = list(max(nx.connected_components(graph), key=len))
     node_lat = np.array([graph.nodes[n]["lat"] for n in node_ids], dtype=float)
     node_lon = np.array([graph.nodes[n]["lon"] for n in node_ids], dtype=float)
 
@@ -139,38 +152,6 @@ def snap_to_nodes(
             matched.append(node_ids[position] if distance <= max_snap_m else None)
 
     return pd.Series(matched, index=centroids.index, dtype=object)
-
-
-def component_size_by_hex(graph: nx.Graph, snapped: pd.Series) -> pd.Series:
-    """Nodos de la componente conexa a la que se engancho cada hexagono.
-
-    snapped: Series indexada por hex_id, con el id del nodo o None.
-    Devuelve: Series alineada con snapped, con el numero de nodos de la
-              componente del nodo enganchado; 0 para los hexagonos sin
-              enganche.
-
-    Es diagnostico, no correccion. snap_to_nodes engancha al nodo mas cercano
-    en linea recta sin mirar a que componente pertenece, y OSM trae fragmentos:
-    calles reales digitalizadas sin unirlas al resto de la red. Un centroide
-    que cae junto a uno de esos fragmentos recibe un alcance dos ordenes de
-    magnitud por debajo del real —plausible, sin excepcion y sin aviso—, y como
-    la normalizacion es min-max, ese minimo falso mueve tambien a los demas
-    hexagonos.
-
-    La regla de enganche NO se cambia: "el nodo mas cercano a menos de 500 m"
-    es la especificada, y re-engancharla a la componente mayor moveria todos
-    los numeros de la fuente bajo una regla que nadie aprobo. Lo que se hace es
-    volver visible la condicion, que es la preferencia de este proyecto ante un
-    numero plausible pero equivocado.
-    """
-    size_by_node: dict = {}
-    for component in nx.connected_components(graph):
-        size = len(component)
-        for node in component:
-            size_by_node[node] = size
-
-    values = [0 if node is None else size_by_node.get(node, 0) for node in snapped]
-    return pd.Series(values, index=snapped.index, dtype=int)
 
 
 def reach_from_snapped(
