@@ -23,15 +23,23 @@ hexágonos sin calle a menos de 500 m).
 | `densidad_pob` | censo AGEB | ❌ falta |
 | `nivel_socioeconomico` | censo AGEB | ❌ falta |
 
-Score máximo actual: `0.5056`.
+Score máximo actual: `0.5136`.
 
-`atractores_osm` sale de 1,789 atractores (`pitch` 663, `park` 434, `garden`
-259, `playground` 149, `marketplace` 111, `station` 102, `sports_centre` 45,
-`square` 26). Las estaciones se deduplican por nombre —OSM trae un nodo Y un
-way para la misma estación— igual que en `transporte.py`: sin ese paso eran 114
-y el conteo total 1,801. Los demás tipos **no** se deduplican a propósito,
-porque los nombres de parque y cancha en GAM son genéricos y se repiten entre
-sitios distintos.
+`atractores_osm` sale de 1,300 atractores (`park` 423, `pitch` 333, `garden`
+213, `marketplace` 104, `station` 84, `playground` 77, `sports_centre` 42,
+`square` 24). Dos reglas los recortan, y las dos importan:
+
+- **Anidamiento.** Un atractor cuyo punto cae dentro del polígono de otro
+  *estrictamente mayor* no cuenta aparte: son 499 de 1,776 (28%). El Deportivo
+  Hermanos Galeana traía 58 canchas mapeadas por separado y contaba 59 veces.
+  Por eso la consulta pide `out geom` y no `out tags center`: un centro no
+  contiene nada. La caché se llama `osm_atractores_geom.json`, con nombre
+  distinto al de la vieja a propósito — reusar aquella dejaría de detectar el
+  anidamiento en silencio.
+- **Dedup de estaciones por nombre**, igual que en `transporte.py`, porque OSM
+  trae un nodo Y un way para la misma estación. Los demás tipos **no** se
+  deduplican por nombre a propósito: los nombres de parque y cancha en GAM son
+  genéricos y se repiten entre sitios genuinamente distintos.
 
 ## Cómo correrlo
 
@@ -93,15 +101,20 @@ antes de sacar conclusiones del mapa.
 - **Las distancias son euclidianas.** El Chiquihuite, el Río de los Remedios y la
   autopista México-Pachuca no existen para el modelo, así que los hexágonos
   detrás de ellos salen sobrevalorados.
-- **La red de OSM tiene fragmentos sueltos.** El grafo son 112 componentes; la
-  mayor tiene 134,545 de 135,894 nodos y el resto son calles reales que nadie
-  unió al resto. El enganche va al nodo más cercano en línea recta, sin mirar
-  la componente, así que un hexágono pegado a un fragmento sale con un alcance
-  dos órdenes de magnitud por debajo. Medido en esta corrida: **1 de 724**,
-  `894995b9053ffff`, enganchado a un fragmento de 13 nodos, 648.7 m contra una
-  mediana de 24,223 m; es el mínimo del conjunto, y como la normalización es
-  min-max, ancla el piso de la columna entera. No se cambió la regla de
-  enganche (es la especificada); `scripts/04_osm.py` lo imprime en cada corrida.
+- **La red de OSM tiene fragmentos sueltos, y por eso el enganche los ignora.**
+  El grafo son 112 componentes; la mayor tiene 134,545 de 135,894 nodos y el
+  resto son calles reales que nadie unió al resto. `894995b9053ffff` se
+  enganchaba a un fragmento de 13 nodos y salía con 648.7 m —el mínimo del
+  conjunto, contra una mediana de 24,223 m— cuando un nodo 53 m más lejos daba
+  17,579 m; como la normalización es min-max, ese mínimo falso anclaba el piso
+  de la columna entera. Ahora `snap_to_nodes` solo considera la componente
+  mayor y el piso quedó en 1,056.6 m. La guardia de los 500 m sigue igual.
+- **La regla de anidamiento es geométrica y deja huecos.** Una cancha cuyo
+  centroide caiga fuera del polígono de su parque, por un contorno mal
+  digitalizado, sigue contando doble; un contenedor mapeado como nodo suelto no
+  absorbe nada. Y se lleva un caso legítimo: la estación **Deportivo 18 de
+  Marzo** cae dentro del deportivo homónimo y deja de contar como atractor
+  (su afluencia sigue en `flujo_transporte`).
 - **No hay ground truth.** Esto prioriza dónde mirar, no predice que un negocio
   funcione.
 
