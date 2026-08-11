@@ -5,7 +5,7 @@ Dónde quedó el proyecto y qué conviene saber antes de tocar nada.
 ## Estado
 
 `main` en `de8974e`, con la rebanada vertical, DENUE y OSM ya integradas.
-151 pruebas pasando en 0.6 s, sin red. El pipeline completo corre de punta a punta
+160 pruebas pasando en 0.8 s, sin red. El pipeline completo corre de punta a punta
 y el dashboard levanta.
 
 **Cobertura del score: 724 de 724 hexágonos.** Arrancó en 218 con solo la fuente
@@ -23,7 +23,15 @@ hexágonos sin calle a menos de 500 m).
 | `densidad_pob` | censo AGEB | ❌ falta |
 | `nivel_socioeconomico` | censo AGEB | ❌ falta |
 
-Score máximo actual: `0.5062`.
+Score máximo actual: `0.5056`.
+
+`atractores_osm` sale de 1,789 atractores (`pitch` 663, `park` 434, `garden`
+259, `playground` 149, `marketplace` 111, `station` 102, `sports_centre` 45,
+`square` 26). Las estaciones se deduplican por nombre —OSM trae un nodo Y un
+way para la misma estación— igual que en `transporte.py`: sin ese paso eran 114
+y el conteo total 1,801. Los demás tipos **no** se deduplican a propósito,
+porque los nombres de parque y cancha en GAM son genéricos y se repiten entre
+sitios distintos.
 
 ## Cómo correrlo
 
@@ -85,6 +93,15 @@ antes de sacar conclusiones del mapa.
 - **Las distancias son euclidianas.** El Chiquihuite, el Río de los Remedios y la
   autopista México-Pachuca no existen para el modelo, así que los hexágonos
   detrás de ellos salen sobrevalorados.
+- **La red de OSM tiene fragmentos sueltos.** El grafo son 112 componentes; la
+  mayor tiene 134,545 de 135,894 nodos y el resto son calles reales que nadie
+  unió al resto. El enganche va al nodo más cercano en línea recta, sin mirar
+  la componente, así que un hexágono pegado a un fragmento sale con un alcance
+  dos órdenes de magnitud por debajo. Medido en esta corrida: **1 de 724**,
+  `894995b9053ffff`, enganchado a un fragmento de 13 nodos, 648.7 m contra una
+  mediana de 24,223 m; es el mínimo del conjunto, y como la normalización es
+  min-max, ancla el piso de la columna entera. No se cambió la regla de
+  enganche (es la especificada); `scripts/04_osm.py` lo imprime en cada corrida.
 - **No hay ground truth.** Esto prioriza dónde mirar, no predice que un negocio
   funcione.
 
