@@ -101,6 +101,42 @@ def test_un_payload_vacio_da_un_frame_vacio_con_columnas():
     assert list(frame.columns) == ATTRACTOR_COLUMNS
 
 
+def test_las_estaciones_se_deduplican_por_nombre_pero_los_parques_no():
+    # OSM suele traer un nodo Y un way para la misma estacion, a metros de
+    # distancia: Martin Carrera aparece dos veces separada 2.8 m. transporte.py
+    # ya deduplica por eso, y esta fuente usa las mismas tres etiquetas de
+    # transporte.
+    #
+    # Los parques NO se deduplican: los nombres de parque, jardin y cancha en
+    # GAM son genericos y se repiten entre sitios genuinamente distintos, asi
+    # que deduplicar por nombre borraria atractores reales.
+    payload = {
+        "elements": [
+            nodo(1, {"railway": "station", "name": "Martin Carrera"}, lat=19.5000),
+            via(2, {"railway": "station", "name": "Martin Carrera"}, lat=19.50003),
+            via(3, {"leisure": "park", "name": "Parque Recreativo"}, lat=19.51),
+            via(4, {"leisure": "park", "name": "Parque Recreativo"}, lat=19.52),
+        ]
+    }
+    frame = attractors_from_overpass(payload)
+    estaciones = frame[frame["osm_kind"] == "station"]
+    parques = frame[frame["osm_kind"] == "park"]
+    assert len(estaciones) == 1, "un nodo y un way de la misma estacion son un atractor"
+    assert len(parques) == 2, "los nombres genericos de parque no se deduplican"
+
+
+def test_las_estaciones_sin_nombre_no_se_pierden():
+    # Sin nombre no hay con que deduplicar, y descartarlas perderia paradas
+    # reales. Se dejan todas.
+    payload = {
+        "elements": [
+            nodo(1, {"public_transport": "station"}),
+            via(2, {"public_transport": "station"}, lat=19.6),
+        ]
+    }
+    assert len(attractors_from_overpass(payload)) == 2
+
+
 def test_precedencia_de_etiquetas_cuando_un_elemento_tiene_varias():
     # Una plaza con tianguis permanente es real en CDMX: place=square + amenity=marketplace.
     # El orden de ATTRACTOR_TAGS fija cual gana. Marketplace viene antes que square

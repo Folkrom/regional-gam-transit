@@ -63,7 +63,9 @@ def build_attractor_query(bbox: tuple[float, float, float, float]) -> str:
     banqueta de la alcaldia.
 
     Las tres etiquetas de transporte son las mismas que ya usa transporte.py,
-    para no introducir un universo distinto de paradas.
+    para no introducir un universo distinto de paradas. El parseo tambien
+    deduplica las estaciones por nombre, como transporte.py, porque pedir las
+    mismas etiquetas no basta: sin ese paso el universo si sale distinto.
     """
     south, west, north, east = bbox
     box = f"{south},{west},{north},{east}"
@@ -130,6 +132,17 @@ def attractors_from_overpass(payload: dict) -> pd.DataFrame:
 
     Un elemento sin coordenadas no se puede ubicar en el mapa, asi que se
     descarta.
+
+    Las estaciones se deduplican por nombre, igual que en transporte.py: OSM
+    suele traer un nodo Y un way para la misma estacion, y sin deduplicar
+    Martin Carrera cuenta dos veces por dos objetos separados 2.8 m. La
+    propiedad de no contar dos veces sigue rigiendo DENTRO de cada fuente.
+
+    Solo las estaciones, y solo las que traen nombre. Los demas tipos NO se
+    deduplican a proposito: los nombres de parque, jardin y cancha en GAM son
+    genericos y se repiten entre sitios genuinamente distintos, asi que un
+    dedup global por nombre borraria atractores reales. Una estacion sin
+    nombre no tiene con que deduplicarse y se deja tal cual.
     """
     rows = []
     for element in payload.get("elements", []):
@@ -147,7 +160,13 @@ def attractors_from_overpass(payload: dict) -> pd.DataFrame:
         name = element.get("tags", {}).get("name", "")
         rows.append((kind, name, float(lat), float(lon)))
 
-    return pd.DataFrame(rows, columns=ATTRACTOR_COLUMNS)
+    frame = pd.DataFrame(rows, columns=ATTRACTOR_COLUMNS)
+    repetida = (
+        (frame["osm_kind"] == "station")
+        & (frame["name"] != "")
+        & frame.duplicated(subset=["osm_kind", "name"], keep="first")
+    )
+    return frame[~repetida].reset_index(drop=True)
 
 
 def validate_payload(payload: dict) -> dict:
