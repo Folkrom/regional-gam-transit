@@ -5,7 +5,9 @@ import json
 import pytest
 import requests
 
+from rtgam import USER_AGENT
 from rtgam.sources.osm import (
+    EXCLUDED_HIGHWAY,
     build_attractor_query,
     build_network_query,
     fetch_overpass,
@@ -16,11 +18,26 @@ BBOX = (19.4448, -99.1770, 19.5928, -99.0509)
 
 
 def test_la_consulta_de_red_excluye_las_vias_rapidas():
+    # Se afirma la NEGACION, no la presencia de la palabra: "motorway" aparece
+    # en la consulta tanto si el operador excluye (!~) como si incluye (~), y
+    # con `~` la red descargada seria solo el esqueleto de vias rapidas. Serian
+    # 724 numeros suaves, plausibles y completamente equivocados.
     query = build_network_query(BBOX)
+    assert f'"highway"!~"{EXCLUDED_HIGHWAY}"' in query
+    assert '"highway"~"' not in query
     assert "motorway" in query
     assert "trunk" in query
     # El bbox va en el orden de Overpass: sur, oeste, norte, este.
     assert "19.4448,-99.177,19.5928,-99.0509" in query.replace(" ", "")
+
+
+def test_la_consulta_de_red_pide_geometria():
+    # `out geom` y no `out center`: sin geometria las vias llegan sin
+    # coordenadas, build_graph las salta todas y accesibilidad_peatonal sale
+    # 0.0 en los 724 hexagonos sin que nada lance.
+    query = build_network_query(BBOX)
+    assert "out geom" in query
+    assert "out center" not in query
 
 
 def test_la_consulta_de_atractores_pide_nwr_no_solo_way():
@@ -31,6 +48,23 @@ def test_la_consulta_de_atractores_pide_nwr_no_solo_way():
     assert "nwr" in query
     assert "way[" not in query
     assert "out tags center" in query
+
+
+def test_la_consulta_de_atractores_pide_los_seis_selectores():
+    # El de aerialway es el que mas facil se cae y el que mas cuesta: el
+    # Cablebus Linea 1 corre entero dentro de GAM, no publica afluencia, y la
+    # presencia de sus estaciones en atractores_osm es lo UNICO que hace
+    # visible a Cuautepec en este proyecto.
+    query = build_attractor_query(BBOX)
+    for selector in (
+        '"leisure"',
+        '"amenity"="marketplace"',
+        '"place"="square"',
+        '"railway"="station"',
+        '"aerialway"="station"',
+        '"public_transport"="station"',
+    ):
+        assert selector in query, f"falta el selector {selector}"
 
 
 def test_la_consulta_de_atractores_no_pide_suelo_de_conservacion():
@@ -80,6 +114,62 @@ def test_un_cuerpo_html_con_status_200_no_deja_cache(tmp_path, monkeypatch):
         fetch_overpass("[out:json];out count;", cache)
 
     assert not cache.exists(), "no debe quedar cache de una respuesta inservible"
+
+
+def test_un_remark_de_error_con_status_200_no_deja_cache(tmp_path, monkeypatch):
+    """El orden de fetch_overpass: validar ANTES de escribir la cache.
+
+    Es la propiedad de seguridad central de esta fuente y ya se implemento al
+    reves tres veces en este proyecto. A diferencia del caso del cuerpo HTML,
+    aqui el JSON SI se puede serializar, asi que la cache solo queda limpia si
+    el orden es el correcto.
+    """
+
+    class RespuestaConRemark:
+        status_code = 200
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"elements": [], "remark": "runtime error: Query timed out"}
+
+    def falso_post(*args, **kwargs):
+        return RespuestaConRemark()
+
+    monkeypatch.setattr("rtgam.sources.osm.requests.post", falso_post)
+    monkeypatch.setattr("rtgam.sources.osm.time.sleep", lambda _s: None)
+
+    cache = tmp_path / "osm.json"
+    with pytest.raises(RuntimeError):
+        fetch_overpass("[out:json];out count;", cache)
+
+    assert not cache.exists(), "una respuesta con remark de error no debe cachearse"
+
+
+def test_la_peticion_manda_el_user_agent(tmp_path, monkeypatch):
+    # Overpass responde 406 sin User-Agent. Sin esta prueba, borrar el header
+    # solo falla contra el servidor real, que ninguna corrida de pruebas toca.
+    capturado = {}
+
+    class RespuestaBuena:
+        status_code = 200
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"elements": [{"type": "node", "id": 1}]}
+
+    def falso_post(*args, **kwargs):
+        capturado.update(kwargs)
+        return RespuestaBuena()
+
+    monkeypatch.setattr("rtgam.sources.osm.requests.post", falso_post)
+
+    fetch_overpass("[out:json];out count;", tmp_path / "osm.json")
+
+    assert capturado["headers"]["User-Agent"] == USER_AGENT
 
 
 def test_una_cache_valida_no_toca_la_red(tmp_path, monkeypatch):
