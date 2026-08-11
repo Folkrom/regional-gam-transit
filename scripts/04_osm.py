@@ -13,6 +13,7 @@ primer plano, no en background.
 import argparse
 from pathlib import Path
 
+import networkx as nx
 import pandas as pd
 
 from rtgam.boundary import fetch_gam_polygon
@@ -20,6 +21,7 @@ from rtgam.red import (
     MAX_SNAP_M,
     WALK_CUTOFF_M,
     build_graph,
+    component_size_by_hex,
     reach_from_snapped,
     snap_to_nodes,
 )
@@ -87,6 +89,23 @@ def main() -> None:
     print(
         f"Hexagonos sin calle a menos de {MAX_SNAP_M:.0f} m: {sin_enganche} de {len(hexes)}"
     )
+
+    # El enganche va al nodo mas cercano en linea recta, sin mirar a que
+    # componente pertenece. Un centroide que cae junto a un fragmento suelto de
+    # OSM sale con un alcance dos ordenes de magnitud por debajo del real, sin
+    # que nada lance. No se cambia la regla; se imprime a quien le paso.
+    mayor = max((len(c) for c in nx.connected_components(graph)), default=0)
+    tamanos = component_size_by_hex(graph, enganches)
+    fuera = tamanos[(tamanos > 0) & (tamanos < mayor)].sort_values()
+    print(
+        f"Componente mayor del grafo: {mayor:,} nodos de "
+        f"{graph.number_of_nodes():,} ({nx.number_connected_components(graph)} componentes)"
+    )
+    print(
+        f"Hexagonos enganchados FUERA de la componente mayor: {len(fuera)} de {len(hexes)}"
+    )
+    for hex_id, tamano in fuera.items():
+        print(f"  {hex_id}: componente de {tamano} nodos (su alcance sale subestimado)")
 
     print(f"Calculando alcance a {WALK_CUTOFF_M:.0f} m por la red...")
     alcance = reach_from_snapped(graph, enganches)

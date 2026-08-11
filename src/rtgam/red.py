@@ -141,6 +141,38 @@ def snap_to_nodes(
     return pd.Series(matched, index=centroids.index, dtype=object)
 
 
+def component_size_by_hex(graph: nx.Graph, snapped: pd.Series) -> pd.Series:
+    """Nodos de la componente conexa a la que se engancho cada hexagono.
+
+    snapped: Series indexada por hex_id, con el id del nodo o None.
+    Devuelve: Series alineada con snapped, con el numero de nodos de la
+              componente del nodo enganchado; 0 para los hexagonos sin
+              enganche.
+
+    Es diagnostico, no correccion. snap_to_nodes engancha al nodo mas cercano
+    en linea recta sin mirar a que componente pertenece, y OSM trae fragmentos:
+    calles reales digitalizadas sin unirlas al resto de la red. Un centroide
+    que cae junto a uno de esos fragmentos recibe un alcance dos ordenes de
+    magnitud por debajo del real —plausible, sin excepcion y sin aviso—, y como
+    la normalizacion es min-max, ese minimo falso mueve tambien a los demas
+    hexagonos.
+
+    La regla de enganche NO se cambia: "el nodo mas cercano a menos de 500 m"
+    es la especificada, y re-engancharla a la componente mayor moveria todos
+    los numeros de la fuente bajo una regla que nadie aprobo. Lo que se hace es
+    volver visible la condicion, que es la preferencia de este proyecto ante un
+    numero plausible pero equivocado.
+    """
+    size_by_node: dict = {}
+    for component in nx.connected_components(graph):
+        size = len(component)
+        for node in component:
+            size_by_node[node] = size
+
+    values = [0 if node is None else size_by_node.get(node, 0) for node in snapped]
+    return pd.Series(values, index=snapped.index, dtype=int)
+
+
 def reach_from_snapped(
     graph: nx.Graph, snapped: pd.Series, cutoff: float = WALK_CUTOFF_M
 ) -> pd.Series:

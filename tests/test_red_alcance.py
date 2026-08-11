@@ -54,7 +54,12 @@ def test_el_corte_por_defecto_son_800_metros():
 
 import pandas as pd
 
-from rtgam.red import MAX_SNAP_M, reach_from_snapped, snap_to_nodes
+from rtgam.red import (
+    MAX_SNAP_M,
+    component_size_by_hex,
+    reach_from_snapped,
+    snap_to_nodes,
+)
 
 
 def alcance_de(graph, cent):
@@ -138,3 +143,47 @@ def test_el_troceado_no_cambia_el_resultado():
 def test_un_grafo_vacio_da_alcance_cero_sin_lanzar():
     alcance = alcance_de(nx.Graph(), centroides([("a", 19.5, -99.1)]))
     assert alcance.loc["a"] == pytest.approx(0.0)
+
+
+def grafo_con_isla():
+    """Una calle de cuatro nodos y un fragmento suelto de dos, sin unir a ella.
+
+    Es la forma real de OSM: calles digitalizadas sin conectar al resto de la
+    red. En GAM el grafo trae 112 componentes.
+    """
+    graph = nx.Graph()
+    for node_id, lon in enumerate([-99.1000, -99.0990, -99.0980, -99.0970], start=1):
+        graph.add_node(node_id, lat=19.5000, lon=lon)
+    for a, b in [(1, 2), (2, 3), (3, 4)]:
+        graph.add_edge(a, b, length=104.8)
+
+    graph.add_node(10, lat=19.5050, lon=-99.1000)
+    graph.add_node(11, lat=19.5050, lon=-99.0990)
+    graph.add_edge(10, 11, length=104.8)
+    return graph
+
+
+def test_el_tamano_de_componente_distingue_la_isla_de_la_red_grande():
+    # El hexagono de arriba se engancha al fragmento suelto porque le queda mas
+    # cerca en linea recta, y su alcance sale minusculo sin que nada lo diga.
+    # El tamano de componente es lo que hace visible esa condicion.
+    graph = grafo_con_isla()
+    cent = centroides([("isla", 19.5050, -99.09995), ("calle", 19.5000, -99.09995)])
+    tamanos = component_size_by_hex(graph, snap_to_nodes(graph, cent))
+    assert tamanos.loc["isla"] == 2
+    assert tamanos.loc["calle"] == 4
+
+
+def test_un_hexagono_sin_enganche_reporta_componente_cero():
+    graph = grafo_con_isla()
+    cent = centroides([("lejos", 19.5200, -99.1000)])
+    tamanos = component_size_by_hex(graph, snap_to_nodes(graph, cent))
+    assert tamanos.loc["lejos"] == 0
+
+
+def test_el_tamano_de_componente_conserva_el_indice_de_los_hexagonos():
+    graph = grafo_con_isla()
+    cent = centroides([("a", 19.5000, -99.0970), ("b", 19.5050, -99.1000)])
+    tamanos = component_size_by_hex(graph, snap_to_nodes(graph, cent))
+    assert list(tamanos.index) == ["a", "b"]
+    assert not tamanos.isna().any()
