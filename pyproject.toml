@@ -7,6 +7,12 @@ dependencies = [
     "h3>=4.0",
     "pandas>=2.2",
     "numpy>=1.26",
+    # Solo para el grafo de calles de la fuente OSM: Dijkstra acotado desde los
+    # 724 centroides. Es Python puro, sin extensiones compiladas. Se prefirio
+    # sobre osmnx, que hace lo mismo mejor pero arrastra geopandas, pyproj,
+    # rtree y scikit-learn, y cachea por su cuenta en paralelo al patron del
+    # proyecto.
+    "networkx>=3.0",
     "shapely>=2.0",
     # Acotado a proposito, no por comodidad. pyarrow 25.0.0 revienta con
     # SIGSEGV dentro del hilo de scripts de Streamlit: el proceso se cae solo

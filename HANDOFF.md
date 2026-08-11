@@ -4,25 +4,34 @@ Dónde quedó el proyecto y qué conviene saber antes de tocar nada.
 
 ## Estado
 
-`main` en `de8974e`, con la rebanada vertical y la fuente DENUE ya integradas.
-104 pruebas pasando en 0.6 s, sin red. El pipeline completo corre de punta a punta
+`main` en `de8974e`, con la rebanada vertical, DENUE y OSM ya integradas.
+160 pruebas pasando en 0.8 s, sin red. El pipeline completo corre de punta a punta
 y el dashboard levanta.
 
-**Cobertura del score: 706 de 724 hexágonos.** Arrancó en 218 con solo la fuente
-de transporte; DENUE cubrió el 70% de GAM que estaba invisible.
+**Cobertura del score: 724 de 724 hexágonos.** Arrancó en 218 con solo la fuente
+de transporte; DENUE cubrió el 70% de GAM que estaba invisible, y OSM cerró los
+últimos 18: su red peatonal enganchó los 724 centroides sin excepción (0
+hexágonos sin calle a menos de 500 m).
 
 | variable | fuente | estado |
 |---|---|---|
 | `flujo_transporte` | afluencia del Metro | ✅ |
 | `competencia` | DENUE, SCIAN 722515 filtrado | ✅ |
 | `atractores_denue` | DENUE, sectores 46/72/61/62/71 | ✅ |
-| `accesibilidad_peatonal` | OSM | ❌ falta |
-| `atractores_osm` | OSM | ❌ falta |
+| `accesibilidad_peatonal` | OSM, alcance a 800 m por la red | ✅ |
+| `atractores_osm` | OSM, espacio publico y transporte | ✅ |
 | `densidad_pob` | censo AGEB | ❌ falta |
 | `nivel_socioeconomico` | censo AGEB | ❌ falta |
 
-Score máximo actual: `0.3883`. Los hexágonos top caen alrededor de Indios Verdes,
-Martín Carrera y La Raza.
+Score máximo actual: `0.5056`.
+
+`atractores_osm` sale de 1,789 atractores (`pitch` 663, `park` 434, `garden`
+259, `playground` 149, `marketplace` 111, `station` 102, `sports_centre` 45,
+`square` 26). Las estaciones se deduplican por nombre —OSM trae un nodo Y un
+way para la misma estación— igual que en `transporte.py`: sin ese paso eran 114
+y el conteo total 1,801. Los demás tipos **no** se deduplican a propósito,
+porque los nombres de parque y cancha en GAM son genéricos y se repiten entre
+sitios distintos.
 
 ## Cómo correrlo
 
@@ -32,6 +41,7 @@ uv run pytest -q
 uv run python scripts/01_build_grid.py
 uv run python scripts/02_transporte.py
 uv run python scripts/03_denue.py
+uv run python scripts/04_osm.py
 uv run python scripts/99_score.py
 uv run streamlit run app/dashboard.py
 ```
@@ -47,19 +57,17 @@ cada corrida, así que editarlo no sirve de nada).
 
 ## Lo siguiente
 
-**OSM es la fuente recomendada**, y responde literal la pregunta que abrió esta
-línea de trabajo: en qué calles camina más gente.
+**El censo AGEB es el único pendiente.** Aporta `densidad_pob` y
+`nivel_socioeconomico`, y es la primera fuente que necesita `geopandas`, porque
+hay que repartir población de polígonos AGEB a hexágonos por intersección de
+área.
 
-La técnica es centralidad de intermediación (*betweenness*) sobre la red peatonal
-descargada con `osmnx`: qué tramos están en más rutas cortas entre puntos. La
-literatura de *space syntax* la valida como predictor de volumen peatonal real, y
-cubre el 100% del territorio. Aporta dos columnas: `accesibilidad_peatonal` y
-`atractores_osm`. Es la única fuente que agrega dependencias nuevas
-(`osmnx` + `networkx`).
-
-El censo AGEB es la otra pendiente. Aporta `densidad_pob` y
-`nivel_socioeconomico`, y es la primera que necesita `geopandas`, porque hay que
-repartir población de polígonos AGEB a hexágonos por intersección de área.
+(OSM ya quedó integrado: `accesibilidad_peatonal` y `atractores_osm` salen de
+`scripts/04_osm.py`. La técnica es Dijkstra acotado a 800 m sobre el grafo de
+calles descargado de Overpass, en `networkx` puro, sin `osmnx` — se prefirió
+así porque `osmnx` arrastra `geopandas`, `pyproj`, `rtree` y `scikit-learn` y
+cachea por su cuenta en paralelo al patrón del proyecto. No es *betweenness*:
+es alcance, metros de calle recorribles desde el centroide del hexágono.)
 
 Hay una tercera idea barata que quedó anotada y sin hacer: usar **presencia** de
 estación como variable separada de **volumen**. Ya están descargadas las 117
@@ -85,6 +93,15 @@ antes de sacar conclusiones del mapa.
 - **Las distancias son euclidianas.** El Chiquihuite, el Río de los Remedios y la
   autopista México-Pachuca no existen para el modelo, así que los hexágonos
   detrás de ellos salen sobrevalorados.
+- **La red de OSM tiene fragmentos sueltos.** El grafo son 112 componentes; la
+  mayor tiene 134,545 de 135,894 nodos y el resto son calles reales que nadie
+  unió al resto. El enganche va al nodo más cercano en línea recta, sin mirar
+  la componente, así que un hexágono pegado a un fragmento sale con un alcance
+  dos órdenes de magnitud por debajo. Medido en esta corrida: **1 de 724**,
+  `894995b9053ffff`, enganchado a un fragmento de 13 nodos, 648.7 m contra una
+  mediana de 24,223 m; es el mínimo del conjunto, y como la normalización es
+  min-max, ancla el piso de la columna entera. No se cambió la regla de
+  enganche (es la especificada); `scripts/04_osm.py` lo imprime en cada corrida.
 - **No hay ground truth.** Esto prioriza dónde mirar, no predice que un negocio
   funcione.
 
@@ -112,10 +129,15 @@ cómo re-evaluarlo — 6+ corridas seguidas sin código 139. **Una sola corrida 
 prueba nada con un fallo intermitente**, que es la trampa que costó cinco
 diagnósticos equivocados.
 
-**No mandes scripts largos a background.** Tres agentes perdieron su trabajo así:
-el proceso muere con su padre. `03_denue.py` tarda varios minutos (45 MB de
+**No mandes scripts largos a background.** Cuatro agentes ya perdieron su trabajo
+así: el proceso muere con su padre. `03_denue.py` tarda varios minutos (45 MB de
 descarga, 260 MB de CSV, ~1.1 GB de pico de memoria) y hay que correrlo en primer
-plano.
+plano. Le pasó otra vez a `04_osm.py`: un timeout de shell de 600 s movió la
+corrida a segundo plano y el proceso murió con ella. La descarga de la red
+peatonal (17.6 MB de JSON) sí alcanzó a completarse y quedó en caché antes de
+morir, así que la siguiente corrida no la repitió; la de atractores (mucho más
+chica) se bajó aparte, como comando propio, y el resto del pipeline corrió en
+un tercer paso ya con las dos cachés en disco.
 
 ## Convenciones
 
