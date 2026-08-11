@@ -163,5 +163,5 @@ def test_un_429_reintenta_hasta_agotar(tmp_path, monkeypatch):
     # 3 intentos × 2 espejos = 6 llamadas a post
     assert post_call_count == 6, f"Esperaba 6 llamadas a post (3 intentos × 2 espejos), got {post_call_count}"
 
-    # 2 llamadas a sleep (después del intento 0 y 1, no después del 2)
+    # 2 llamadas a sleep (despues del intento 0 y 1, no despues del 2)
     assert sleep_call_count == 2, f"Esperaba 2 llamadas a sleep (entre intentos), got {sleep_call_count}"
