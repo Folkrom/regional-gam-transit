@@ -11,6 +11,9 @@ from pathlib import Path
 
 import pandas as pd
 import requests
+from shapely.geometry import Point, Polygon
+from shapely.ops import unary_union
+from shapely.strtree import STRtree
 
 from rtgam import USER_AGENT
 from rtgam.geo import accumulate_decay
@@ -55,8 +58,9 @@ def build_attractor_query(bbox: tuple[float, float, float, float]) -> str:
     `nwr` y no `way`: el Bosque de San Juan de Aragon existe SOLO como relation,
     y una consulta de puros `way` lo pierde sin lanzar nada.
 
-    `out tags center` devuelve el centroide ya calculado para ways y relations,
-    y las coordenadas propias para los nodos sueltos.
+    `out geom` y no `out tags center`: hace falta el poligono completo, no solo
+    un punto, para saber que atractores estan DENTRO de otro. Un `center` no
+    contiene nada. Cuesta 1.1 MB en vez de 293 KB, que no es costo.
 
     El suelo de conservacion no se pide: la Sierra de Guadalupe es ladera, no
     plaza, y meterla pondria un atractor enorme sobre los hexagonos con menos
@@ -79,7 +83,7 @@ def build_attractor_query(bbox: tuple[float, float, float, float]) -> str:
   nwr["aerialway"="station"]({box});
   nwr["public_transport"="station"]({box});
 );
-out tags center;
+out geom;
 """
 
 
@@ -124,14 +128,117 @@ def attractor_kind(tags: dict) -> str | None:
     return None
 
 
+def element_polygon(element: dict) -> Polygon | None:
+    """Poligono de un elemento pedido con `out geom`, o None si no lo tiene.
+
+    Un way trae `geometry`, una lista de puntos. Una relation trae `members`,
+    cada uno con su propia `geometry`: el poligono de la relation es la union
+    de los anillos de sus miembros. Los roles outer/inner se ignoran, asi que
+    un parque con un hueco adentro sale sin el hueco. Para lo unico que se usa
+    el poligono —saber que cae dentro de que— el hueco no cambia nada, y
+    armarlo bien seria reimplementar el ensamblado de multipoligonos de OSM.
+
+    Los anillos con menos de cuatro puntos no cierran una figura. Los invalidos
+    (que se cruzan a si mismos, comunes en OSM) se reparan con buffer(0), el
+    truco estandar de shapely.
+
+    Un nodo no tiene poligono y devuelve None: puede quedar contenido en otro
+    atractor, pero no puede contener a nadie.
+    """
+
+    def anillo(puntos) -> Polygon | None:
+        if not puntos or len(puntos) < 4:
+            return None
+        try:
+            poligono = Polygon([(p["lon"], p["lat"]) for p in puntos])
+        except (TypeError, ValueError):
+            return None
+        if not poligono.is_valid:
+            poligono = poligono.buffer(0)
+        if poligono.is_empty or poligono.area == 0 or not isinstance(poligono, Polygon):
+            return None
+        return poligono
+
+    if "geometry" in element:
+        return anillo(element["geometry"])
+
+    if "members" in element:
+        anillos = [
+            figura
+            for miembro in element["members"]
+            if (figura := anillo(miembro.get("geometry"))) is not None
+        ]
+        if not anillos:
+            return None
+        unido = unary_union(anillos)
+        # Una relation con miembros sueltos da un MultiPolygon. El casco convexo
+        # lo vuelve un poligono, que es lo que necesita la prueba de contencion.
+        return unido if isinstance(unido, Polygon) else unido.convex_hull
+
+    return None
+
+
+def drop_nested(frame: pd.DataFrame, polygons: list) -> pd.DataFrame:
+    """Quita los atractores que caen dentro de otro atractor mas grande.
+
+    frame:    columnas osm_kind, name, lat, lon.
+    polygons: alineado por posicion con frame; None para lo que no es poligono.
+
+    Un deportivo con ocho canchas mapeadas aparte contaba nueve veces, y la
+    cancha no es un destino distinto del deportivo que la contiene: es el mismo
+    sitio digitalizado con mas detalle. Medido en GAM: 499 de 1,776 atractores
+    (28%) caen dentro de otro. El Deportivo Hermanos Galeana trae 58 canchas y
+    contaba 59 veces.
+
+    El contenedor tiene que ser ESTRICTAMENTE mayor. Dos poligonos del mismo
+    tamano que se traslapan son dos sitios distintos mal digitalizados, no uno
+    dentro de otro; sin la comparacion de area, cual sobrevive dependeria del
+    orden del payload.
+
+    La regla vale para todos los tipos, no solo canchas: 43 jardines dentro de
+    su parque, 23 estaciones dentro de otra estacion, 5 mercados dentro de otro
+    mercado. Es la misma subdivision del mismo espacio publico con otro nombre.
+    """
+    if frame.empty:
+        return frame
+
+    con_poligono = [(i, p) for i, p in enumerate(polygons) if p is not None]
+    if not con_poligono:
+        return frame
+
+    posiciones = [i for i, _ in con_poligono]
+    figuras = [p for _, p in con_poligono]
+    areas = [p.area for p in figuras]
+    tree = STRtree(figuras)
+
+    puntos = [Point(lon, lat) for lat, lon in zip(frame["lat"], frame["lon"])]
+    area_propia = dict(zip(posiciones, areas))
+
+    anidado = []
+    for i, punto in enumerate(puntos):
+        propia = area_propia.get(i, 0.0)
+        contenido = False
+        for j in tree.query(punto):
+            if posiciones[j] == i or areas[j] <= propia:
+                continue
+            if figuras[j].contains(punto):
+                contenido = True
+                break
+        anidado.append(contenido)
+
+    return frame[~pd.Series(anidado, index=frame.index)]
+
+
 def attractors_from_overpass(payload: dict) -> pd.DataFrame:
     """Convierte una respuesta de Overpass en un DataFrame de atractores.
 
-    Acepta node, way y relation. Los nodos traen lat/lon propias; ways y
-    relations traen `center`, porque la consulta pide `out tags center`.
+    Acepta node, way y relation. Un nodo se ubica en sus propias coordenadas;
+    un way o una relation, en el centroide de su geometria.
 
     Un elemento sin coordenadas no se puede ubicar en el mapa, asi que se
     descarta.
+
+    Lo que cae dentro de un atractor mayor no cuenta aparte: ver drop_nested.
 
     Las estaciones se deduplican por nombre, igual que en transporte.py: OSM
     suele traer un nodo Y un way para la misma estacion, y sin deduplicar
@@ -145,22 +252,26 @@ def attractors_from_overpass(payload: dict) -> pd.DataFrame:
     nombre no tiene con que deduplicarse y se deja tal cual.
     """
     rows = []
+    polygons = []
     for element in payload.get("elements", []):
         kind = attractor_kind(element.get("tags", {}))
         if kind is None:
             continue
 
-        if "lat" in element and "lon" in element:
+        polygon = element_polygon(element)
+        if polygon is not None:
+            centroid = polygon.centroid
+            lat, lon = centroid.y, centroid.x
+        elif "lat" in element and "lon" in element:
             lat, lon = element["lat"], element["lon"]
-        elif "center" in element:
-            lat, lon = element["center"]["lat"], element["center"]["lon"]
         else:
             continue
 
         name = element.get("tags", {}).get("name", "")
         rows.append((kind, name, float(lat), float(lon)))
+        polygons.append(polygon)
 
-    frame = pd.DataFrame(rows, columns=ATTRACTOR_COLUMNS)
+    frame = drop_nested(pd.DataFrame(rows, columns=ATTRACTOR_COLUMNS), polygons)
     repetida = (
         (frame["osm_kind"] == "station")
         & (frame["name"] != "")
