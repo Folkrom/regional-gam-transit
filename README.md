@@ -76,46 +76,37 @@ del dashboard.
   los bordes norte y oriente, contra Tlalnepantla, Ecatepec y Nezahualcóyotl,
   seguirían ciegos.
 - Los polígonos grandes de OSM van por su centroide, así que el Bosque de San
-  Juan de Aragón (~1.3 km de largo) sale subestimado. Cuántos polígonos pasan
-  de 400 m de extensión no se midió sobre la corrida vigente (1,789
-  atractores, sin geometría: la consulta pide `out tags center` a propósito,
-  para no bajar de más). El único dato disponible es de una extracción aparte
-  hecha durante el diseño, con una consulta de puros `way` y `out geom` sobre
-  una población distinta de 1,679 polígonos con geometría (sin nodos sueltos
-  ni relations): 43 de esos 1,679 pasaban de 400 m. Sirve como orden de
-  magnitud de que el problema existe, no como conteo de los 1,789 atractores
-  reales de esta corrida.
-- Las canchas y juegos dentro de un parque cuentan aparte, así que un
-  deportivo con ocho canchas suma nueve atractores. Sobre los 1,789 atractores
-  reales de esta corrida (`data/raw/osm_atractores.json`), 663 son `pitch` y
-  149 son `playground`: 812 en total, 45.4% del conteo. Cuántos de esos caen
-  *dentro* de un parque, jardín o deportivo mayor no se puede recalcular
-  contra esta población porque haría falta la geometría de los polígonos
-  contenedores, que esta consulta no descarga. El único dato de anidamiento
-  que existe es de la misma extracción aparte de 1,679 polígonos con
-  geometría mencionada arriba: ahí, 297 (17.7%) de los `pitch`/`playground`
-  tenían su centroide dentro de un parque, jardín o deportivo mayor. Es orden
-  de magnitud, no una cifra de la corrida actual; no se recalculó, ni se
-  extrapoló con una regla de tres, porque no hay geometría con la que
-  medirla. Se deja así a propósito —una cancha de barrio sí es un destino
-  peatonal real— pero el patrón, cuando existe, significa que la variable
-  premia en parte lo finamente que OSM tenga mapeado un sitio, no solo cuánta
-  gente lo camina.
+  Juan de Aragón (~1.3 km de largo) sale subestimado. Medido sobre la corrida
+  vigente (`data/raw/osm_atractores_geom.json`): 39 de los 1,300 atractores
+  pasan de 400 m de extensión. 1,181 de ellos tienen polígono; los demás son
+  nodos sueltos, que no tienen extensión que subestimar.
+- **Lo anidado ya no cuenta aparte**, pero la regla es geométrica y por lo
+  tanto imperfecta. Un atractor cuyo punto cae dentro del polígono de otro
+  *estrictamente mayor* se descarta: eso quitó 499 de 1,776 atractores (28%) y
+  dejó 1,300. El Deportivo Hermanos Galeana contaba 59 veces (58 canchas
+  mapeadas aparte) y ahora cuenta una; el Oceanía pasó de 31 a 1. Lo que la
+  regla no ve: una cancha cuyo centroide caiga *fuera* del polígono de su
+  parque —por un contorno mal digitalizado— sigue contando doble, y un
+  contenedor mapeado como nodo suelto no absorbe a nadie, porque un punto no
+  contiene nada.
+- La regla se lleva un caso que no es subdivisión: la estación de Metro
+  **Deportivo 18 de Marzo** cae dentro del polígono del deportivo homónimo y
+  deja de contar como atractor. Es la única estación de GAM en esa situación.
+  Su afluencia sigue contando en `flujo_transporte`, así que el hexágono no
+  queda ciego; hacerle una excepción a las estaciones costaba más que el caso.
 - Los atractores siguen en distancia euclidiana; solo `accesibilidad_peatonal`
   usa la red.
-- La red de OSM no es una sola pieza: son 112 componentes, y aunque la mayor
-  tiene 134,545 de los 135,894 nodos, el resto son calles reales digitalizadas
-  sin unirlas al resto. El centroide se engancha al nodo más cercano en línea
-  recta, sin mirar en qué componente cae, así que un hexágono junto a uno de
-  esos fragmentos sale con un alcance dos órdenes de magnitud por debajo del
-  real. En esta corrida le pasa a **1 de los 724**: `894995b9053ffff` (San Juan
-  de Aragón) se engancha a un fragmento de 13 nodos y obtiene 648.7 m, el
-  mínimo del conjunto, contra una mediana de 24,223 m. Y no afecta solo a ese
-  hexágono: la normalización es min-max, así que ese mínimo falso ancla el piso
-  de toda la columna. La regla de enganche se dejó como está —es la
-  especificada—, pero `scripts/04_osm.py` ahora imprime cuántos hexágonos
-  quedaron fuera de la componente mayor y con qué tamaño de componente, para
-  que la condición no pase en silencio.
+- La red de OSM no es una sola pieza: son 112 componentes, y la mayor tiene
+  134,545 de los 135,894 nodos. El resto son calles reales digitalizadas sin
+  unirlas a nada. **El enganche solo considera la componente mayor**, porque
+  medir alcance sobre un fragmento suelto mide el hueco de OSM y no la
+  caminabilidad: antes de esto, `894995b9053ffff` (San Juan de Aragón) se
+  enganchaba a un fragmento de 13 nodos y obtenía 648.7 m —el mínimo del
+  conjunto, contra una mediana de 24,223 m— cuando un nodo 53 m más lejos daba
+  17,579 m. Como la normalización es min-max, ese mínimo falso anclaba el piso
+  de la columna entera. El piso real quedó en 1,056.6 m. La guardia de los
+  500 m no se relajó: si el nodo más cercano de la componente mayor queda más
+  lejos, el hexágono se queda sin enganche.
 - OSM es colaborativo y su cobertura es desigual, así que una colonia poco
   mapeada sale baja por falta de mapeadores, no de banquetas.
 - No hay ground truth: esto prioriza dónde mirar, no predice que un negocio

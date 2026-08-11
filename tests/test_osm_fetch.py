@@ -47,7 +47,16 @@ def test_la_consulta_de_atractores_pide_nwr_no_solo_way():
     query = build_attractor_query(BBOX)
     assert "nwr" in query
     assert "way[" not in query
-    assert "out tags center" in query
+
+
+def test_la_consulta_de_atractores_pide_geometria_no_solo_el_centro():
+    # `out geom` y no `out center`: sin poligonos no se puede saber que atractor
+    # cae dentro de cual, y el anidamiento vuelve en silencio. Un deportivo con
+    # ocho canchas volveria a contar nueve veces sin que nada lance.
+    query = build_attractor_query(BBOX)
+    assert "out geom" in query
+    assert "out center" not in query
+    assert "out tags center" not in query
 
 
 def test_la_consulta_de_atractores_pide_los_seis_selectores():

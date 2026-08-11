@@ -21,7 +21,6 @@ from rtgam.red import (
     MAX_SNAP_M,
     WALK_CUTOFF_M,
     build_graph,
-    component_size_by_hex,
     reach_from_snapped,
     snap_to_nodes,
 )
@@ -37,7 +36,10 @@ ROOT = Path(__file__).resolve().parents[1]
 RAW = ROOT / "data" / "raw"
 BOUNDARY = RAW / "gam_boundary.geojson"
 RED_CACHE = RAW / "osm_red_peatonal.json"
-ATRACTORES_CACHE = RAW / "osm_atractores.json"
+# Nombre distinto al de la cache vieja a proposito. Aquella se bajo con
+# `out tags center` y no trae poligonos: reusarla dejaria de detectar el
+# anidamiento y devolveria los 1,776 atractores sin colapsar, en silencio.
+ATRACTORES_CACHE = RAW / "osm_atractores_geom.json"
 HEXES = ROOT / "data" / "processed" / "gam_hexes.parquet"
 OUTPUT = ROOT / "data" / "processed" / "osm.parquet"
 
@@ -76,6 +78,18 @@ def main() -> None:
             "no `way`: los parques grandes de GAM son relations."
         )
 
+    # Guardia contra volver a `out tags center`. Sin poligonos no hay forma de
+    # saber que atractor cae dentro de cual, y el anidamiento regresaria sin que
+    # nada fallara: el Deportivo Hermanos Galeana volveria a contar 59 veces.
+    con_geometria = sum(
+        1 for e in payload["elements"] if e.get("geometry") or e.get("members")
+    )
+    if con_geometria == 0:
+        raise ValueError(
+            "Ningun elemento trae geometria. La consulta debe pedir `out geom`, "
+            "no `out tags center`: sin poligonos no se detecta el anidamiento."
+        )
+
     atractores = attractors_from_overpass(payload)
     print(f"Atractores: {len(atractores):,} (de {relations} relations en el payload)")
     print(atractores["osm_kind"].value_counts().to_string())
@@ -90,22 +104,15 @@ def main() -> None:
         f"Hexagonos sin calle a menos de {MAX_SNAP_M:.0f} m: {sin_enganche} de {len(hexes)}"
     )
 
-    # El enganche va al nodo mas cercano en linea recta, sin mirar a que
-    # componente pertenece. Un centroide que cae junto a un fragmento suelto de
-    # OSM sale con un alcance dos ordenes de magnitud por debajo del real, sin
-    # que nada lance. No se cambia la regla; se imprime a quien le paso.
+    # Los nodos fuera de la componente mayor no se usan para enganchar: son
+    # fragmentos de OSM, calles digitalizadas sin unir al resto de la red, y el
+    # alcance medido sobre uno de ellos mide el hueco, no la caminabilidad.
     mayor = max((len(c) for c in nx.connected_components(graph)), default=0)
-    tamanos = component_size_by_hex(graph, enganches)
-    fuera = tamanos[(tamanos > 0) & (tamanos < mayor)].sort_values()
     print(
         f"Componente mayor del grafo: {mayor:,} nodos de "
-        f"{graph.number_of_nodes():,} ({nx.number_connected_components(graph)} componentes)"
+        f"{graph.number_of_nodes():,} ({nx.number_connected_components(graph)} componentes). "
+        f"El resto no se usa para enganchar."
     )
-    print(
-        f"Hexagonos enganchados FUERA de la componente mayor: {len(fuera)} de {len(hexes)}"
-    )
-    for hex_id, tamano in fuera.items():
-        print(f"  {hex_id}: componente de {tamano} nodos (su alcance sale subestimado)")
 
     print(f"Calculando alcance a {WALK_CUTOFF_M:.0f} m por la red...")
     alcance = reach_from_snapped(graph, enganches)

@@ -278,3 +278,61 @@ el diccionario de datos. Las dos fallaron igual — número equivocado, nada lan
 - Muestreo del perímetro de polígonos grandes.
 - Distancia de red para los atractores.
 - Pendiente del terreno, que en las laderas de GAM importa para caminar.
+
+---
+
+## Enmienda, 2026-08-11
+
+Dos decisiones de este spec se revirtieron después de medirlas contra los datos
+reales. Se documentan aquí en vez de reescribir el texto de arriba: lo útil es
+por qué cambiaron.
+
+### 1. Lo anidado ya no cuenta aparte
+
+El spec original aceptaba que una cancha dentro de un parque contara como
+atractor propio, con el argumento de que una cancha de barrio sí es un destino
+peatonal real. El argumento sigue siendo cierto para una cancha suelta, pero no
+para una cancha *dentro* de un deportivo: ahí no hay dos destinos, hay uno
+digitalizado con más detalle.
+
+Medido con geometría real sobre GAM: **499 de 1,776 atractores (28%) caen dentro
+de otro mayor.** El Deportivo Hermanos Galeana trae 58 canchas mapeadas por
+separado y contaba 59 veces; el Oceanía, 31. La variable estaba premiando lo
+finamente que OSM tuviera mapeado un sitio.
+
+La regla nueva es geométrica y de un solo tipo: un atractor cuyo punto cae
+dentro del polígono de otro **estrictamente mayor** no cuenta aparte. No se
+limitó a `pitch`/`playground` porque el defecto tampoco: 43 jardines dentro de
+su parque, 23 estaciones dentro de otra estación, 5 mercados dentro de otro
+mercado. El área tiene que ser estrictamente mayor porque dos polígonos iguales
+que se traslapan son dos sitios mal digitalizados, y sin esa comparación cuál
+sobrevive dependería del orden del payload.
+
+Consecuencia en la consulta: pasa de `out tags center` a `out geom`. Un centro
+no contiene nada. Son 1.1 MB en vez de 293 KB. La caché cambia de nombre a
+`osm_atractores_geom.json`, porque reusar la vieja dejaría de detectar el
+anidamiento **en silencio**, que es la firma de bug más cara de este proyecto.
+
+Se descartó hacerle una excepción a las estaciones. Solo un caso en toda la
+alcaldía lo pedía —la estación Deportivo 18 de Marzo cae dentro del deportivo
+homónimo— y su afluencia ya cuenta en `flujo_transporte`. Una rama especial
+costaba más que el caso.
+
+Total: 1,776 a 1,300 atractores. `atractores_osm` pasó de una media de 4.24 y un
+máximo de 34.21 a una media de 2.97 y un máximo de 15.33.
+
+### 2. El enganche solo mira la componente mayor
+
+El spec fijaba "el nodo más cercano a menos de 500 m", sin mirar componentes. La
+corrida real mostró el costo: `894995b9053ffff` se enganchaba a un fragmento
+suelto de 13 nodos y salía con 648.7 m de calle alcanzable, cuando un nodo 53 m
+más lejos —ya en la red de verdad— daba 17,579 m. Eso no mide caminabilidad,
+mide un hueco de OSM. Y como la normalización es min-max, ese mínimo falso
+anclaba el piso de los 724 hexágonos.
+
+La componente mayor cubre 134,545 de 135,894 nodos, así que restringir el
+enganche a ella no le quita alcance real a nadie. La guardia de los 500 m no se
+relajó: si el nodo más cercano de esa componente queda más lejos, el hexágono se
+queda sin enganche. El piso de la columna pasó de 648.7 m a 1,056.6 m.
+
+Score máximo: 0.5056 a 0.5136.
