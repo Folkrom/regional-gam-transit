@@ -167,3 +167,72 @@ def test_un_hexagono_cubierto_pero_sin_nse_lanza():
     ageb = ageb_frame([("colectiva", 100.0, float("nan"), float("nan"), float("nan"))])
     with pytest.raises(ValueError, match="nivel socioeconomico"):
         to_hex_features(hexes, ageb, {"colectiva": poligono_de(UNO)})
+
+
+def test_el_orden_de_polygons_no_desalinea_poblacion_ni_nse():
+    # "A" cubre UNO por completo y no toca DOS; "B" cubre DOS por completo y
+    # no toca UNO -sin traslape entre ellos-. El dict polygons se arma en el
+    # orden inverso al indice de ageb (B antes que A). Si el codigo alineara
+    # weights con ageb["pobtot"] por posicion en vez de por clave, la
+    # poblacion y el NSE de A y B quedarian intercambiados entre los dos
+    # hexagonos sin lanzar ninguna excepcion. Los valores se eligen bien
+    # separados (900 vs 100, NSE 1.0 vs 0.0) para que un intercambio sea
+    # inconfundible.
+    hexes = hexes_de(UNO, DOS)
+    ageb = ageb_frame(
+        [
+            ("A", 900.0, 1.0, 1.0, 15.0),
+            ("B", 100.0, 0.0, 0.0, 3.0),
+        ]
+    )
+    polygons = {"B": poligono_de(DOS), "A": poligono_de(UNO)}
+    features = to_hex_features(hexes, ageb, polygons)
+
+    # A y B no se traslapan (cada poligono coincide exactamente con un solo
+    # hexagono), asi que cada hexagono recibe la poblacion y el NSE de un
+    # unico AGEB, sin repartir. Con internet y automovil en {1.0, 0.0} y
+    # escolaridad en {15.0, 3.0} para dos AGEB, _scale_unit manda a A a 1.0
+    # en las tres componentes y a B a 0.0, asi que nse_index(A) = 1.0 y
+    # nse_index(B) = 0.0 exactos.
+    esperado_uno = 900.0 / h3.cell_area(UNO, "km^2")
+    esperado_dos = 100.0 / h3.cell_area(DOS, "km^2")
+    assert features.loc[UNO, "densidad_pob"] == pytest.approx(esperado_uno, rel=1e-6)
+    assert features.loc[DOS, "densidad_pob"] == pytest.approx(esperado_dos, rel=1e-6)
+    assert features.loc[UNO, "nivel_socioeconomico"] == pytest.approx(1.0)
+    assert features.loc[DOS, "nivel_socioeconomico"] == pytest.approx(0.0)
+
+
+def test_el_orden_no_desalinea_el_nse_con_un_ageb_nan_en_medio():
+    # Tres AGEB: "A" cubre UNO, "C" cubre DOS, y "B" -el de en medio segun
+    # ageb.index (A, B, C)- no tiene ningun componente de NSE y su poligono
+    # cae en un tercer hexagono lejano que no toca ni UNO ni DOS. El dict
+    # polygons se arma en un orden distinto al de ageb.index (C, A, B). Esto
+    # ejercita especificamente el emparejamiento entre con_nse (que sigue el
+    # orden de las columnas de weights tras el reordenamiento) y valores
+    # (que sigue el orden de nse.dropna()): si esos dos quedaran
+    # desalineados por posicion en vez de por clave, el NSE de A y C
+    # terminaria intercambiado entre los hexagonos aunque B, el NaN de en
+    # medio, ni siquiera los toque.
+    hexes = hexes_de(UNO, DOS)
+    tres = h3.grid_ring(UNO, 2)[0]
+    ageb = ageb_frame(
+        [
+            ("A", 900.0, 1.0, 1.0, 15.0),
+            ("B", 500.0, float("nan"), float("nan"), float("nan")),
+            ("C", 100.0, 0.0, 0.0, 3.0),
+        ]
+    )
+    polygons = {
+        "C": poligono_de(DOS),
+        "A": poligono_de(UNO),
+        "B": poligono_de(tres),
+    }
+    features = to_hex_features(hexes, ageb, polygons)
+
+    # B no toca ni UNO ni DOS (esta dos anillos lejos), asi que solo A
+    # aporta a UNO y solo C aporta a DOS -sin importar que B sea NaN y este
+    # en medio del indice-. Con solo A y C definiendo el rango de cada
+    # componente, nse_index(A) = 1.0 y nse_index(C) = 0.0, igual que en la
+    # prueba anterior.
+    assert features.loc[UNO, "nivel_socioeconomico"] == pytest.approx(1.0)
+    assert features.loc[DOS, "nivel_socioeconomico"] == pytest.approx(0.0)
