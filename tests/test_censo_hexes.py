@@ -32,7 +32,7 @@ def poligono_de(hex_id, escala=1.0):
 
 
 UNO = h3.latlng_to_cell(19.50, -99.10, 9)
-DOS = h3.latlng_to_cell(19.52, -99.12, 9)
+DOS = h3.grid_ring(UNO, 1)[0]  # vecino inmediato, centroides a ~376 m
 
 
 def test_las_columnas_son_exactamente_las_dos_del_contrato():
@@ -109,10 +109,30 @@ def test_un_ageb_sin_nse_no_arrastra_el_promedio_hacia_cero():
 
 
 def test_la_poblacion_de_un_ageb_sin_nse_si_cuenta_para_densidad():
+    # El hexagono lo cubren dos AGEB completos: "normal" satisface el
+    # guardia de sin_nse (tiene los tres componentes), "colectiva" no tiene
+    # ninguno. La poblacion de "colectiva" debe sumarse a la densidad aunque
+    # quede fuera del promedio de nivel_socioeconomico. Cada poligono cubre
+    # el hexagono entero, asi que cada AGEB le entrega su poblacion completa
+    # -no hay reparto parcial que oscurezca cuanto aporta cada uno-.
     hexes = hexes_de(UNO)
-    ageb = ageb_frame([("colectiva", 8184.0, float("nan"), float("nan"), float("nan"))])
-    features = to_hex_features(hexes, ageb, {"colectiva": poligono_de(UNO)})
-    assert features.loc[UNO, "densidad_pob"] > 0.0
+    ageb = ageb_frame(
+        [
+            ("normal", 1000.0, 0.8, 0.6, 12.0),
+            ("colectiva", 8184.0, float("nan"), float("nan"), float("nan")),
+        ]
+    )
+    polygons = {"normal": poligono_de(UNO), "colectiva": poligono_de(UNO)}
+    features = to_hex_features(hexes, ageb, polygons)
+    solo_normal = to_hex_features(
+        hexes, ageb.loc[["normal"]], {"normal": polygons["normal"]}
+    )
+    area_km2 = h3.cell_area(UNO, "km^2")
+    # Cada poligono cubre el 100% del hexagono, asi que "colectiva" le
+    # entrega sus 8184 habitantes completos; la densidad debe subir
+    # exactamente esa poblacion entre el area del hexagono.
+    esperado = solo_normal.loc[UNO, "densidad_pob"] + 8184.0 / area_km2
+    assert features.loc[UNO, "densidad_pob"] == pytest.approx(esperado, rel=1e-6)
 
 
 def test_la_salida_no_trae_nan():
