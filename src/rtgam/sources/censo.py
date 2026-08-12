@@ -10,11 +10,20 @@ json y lo convierte shapely, que ya es dependencia desde la fuente OSM. Son
 los mismos poligonos del Marco Geoestadistico 2020, republicados.
 """
 
+import io
+import json
+import zipfile
+from pathlib import Path
+
 import h3
 import numpy as np
 import pandas as pd
+import requests
+from shapely.geometry import shape
 
+from rtgam import USER_AGENT
 from rtgam.areal import area_weights, hex_polygons
+from rtgam.sources.denue import first_csv
 
 GAM_MUN = "005"
 
@@ -215,3 +224,127 @@ def to_hex_features(
             "nivel_socioeconomico": promedio,
         }
     )
+
+
+CENSO_URL = (
+    "https://www.inegi.org.mx/contenidos/programas/ccpv/2020/datosabiertos/"
+    "ageb_manzana/ageb_mza_urbana_09_cpv2020_csv.zip"
+)
+AGEB_GEOJSON_URL = (
+    "https://datos.cdmx.gob.mx/dataset/d2ccf6ae-fdf4-407c-a15f-e7dfac2d509d/"
+    "resource/7b0b7a89-d92e-46ec-9286-018e849f8123/download/"
+    "lmites-de-ageb-urbanas-en-la-ciudad-de-mxico.json"
+)
+CENSO_TIMEOUT_S = 300
+
+
+def polygons_from_geojson(payload: dict) -> dict:
+    """Poligonos de los AGEB de GAM, indexados por su clave de cuatro digitos.
+
+    El GeoJSON del portal de la CDMX cubre las 2,431 AGEB de la ciudad; los de
+    GAM son los que traen CVE_MUN igual a 005. Son 305, verificado contra el
+    archivo real.
+    """
+    features = payload.get("features")
+    if not features:
+        raise ValueError(
+            "El GeoJSON de AGEB no trae 'features'. No es una respuesta util y "
+            "no se va a cachear."
+        )
+
+    polygons = {
+        feature["properties"]["CVE_AGEB"]: shape(feature["geometry"])
+        for feature in features
+        if feature.get("properties", {}).get("CVE_MUN") == GAM_MUN
+    }
+
+    if not polygons:
+        raise ValueError(
+            f"Ningun AGEB con CVE_MUN == {GAM_MUN!r} en el GeoJSON. Si la CDMX "
+            f"cambio la clave de alcaldia, GAM saldria vacia y las dos columnas "
+            f"en cero sin que nada fallara."
+        )
+    return polygons
+
+
+def fetch_ageb_polygons(cache_path: Path, force: bool = False) -> dict:
+    """Descarga los poligonos de AGEB, con cache en disco.
+
+    Se valida ANTES de escribir la cache. Al reves, una respuesta inservible
+    queda persistida y envenena todas las corridas siguientes, que releen el
+    mismo payload malo. Se corrigio tres veces en este proyecto por no hacerlo.
+    """
+    if cache_path.exists() and not force:
+        try:
+            payload = json.loads(cache_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as error:
+            raise ValueError(
+                f"La cache {cache_path} esta corrupta o truncada. Borrala o "
+                f"corre con --force para volver a descargar. ({error})"
+            ) from error
+        return polygons_from_geojson(payload)
+
+    response = requests.get(
+        AGEB_GEOJSON_URL,
+        headers={"User-Agent": USER_AGENT},
+        timeout=CENSO_TIMEOUT_S,
+    )
+    response.raise_for_status()
+    payload = response.json()
+
+    polygons = polygons_from_geojson(payload)
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    cache_path.write_text(json.dumps(payload), encoding="utf-8")
+    return polygons
+
+
+def fetch_censo(cache_dir: Path, force: bool = False) -> pd.DataFrame:
+    """Descarga el censo por AGEB de la CDMX y devuelve el CSV crudo.
+
+    Todo se lee como texto: "0012" leido como numero se vuelve 12 y deja de
+    cruzar con la clave de la geometria, sin que nada falle.
+
+    El zip se escribe DESPUES de comprobar que abre y trae el CSV de datos.
+    """
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    zip_path = cache_dir / "censo_ageb_09.zip"
+
+    if zip_path.exists() and not force:
+        try:
+            with zipfile.ZipFile(zip_path) as zf:
+                return _read_censo_csv(zf)
+        except zipfile.BadZipFile as error:
+            raise ValueError(
+                f"La cache {zip_path} esta corrupta o truncada. Borrala o "
+                f"corre con --force para volver a descargar. ({error})"
+            ) from error
+
+    response = requests.get(
+        CENSO_URL, headers={"User-Agent": USER_AGENT}, timeout=CENSO_TIMEOUT_S
+    )
+    response.raise_for_status()
+
+    content = response.content
+    try:
+        with zipfile.ZipFile(io.BytesIO(content)) as zf:
+            frame = _read_censo_csv(zf)
+    except zipfile.BadZipFile as error:
+        raise ValueError(
+            f"La respuesta de {CENSO_URL} no es un zip valido. No se cachea. "
+            f"({error})"
+        ) from error
+
+    zip_path.write_bytes(content)
+    return frame
+
+
+def _read_censo_csv(zf: zipfile.ZipFile) -> pd.DataFrame:
+    """Lee el CSV de datos del zip, como texto.
+
+    first_csv de denue.py ya resuelve el mismo problema: el zip del INEGI trae
+    un diccionario de datos y unos metadatos junto a los datos, y ordenados
+    alfabeticamente 'diccionario_de_datos' va ANTES que 'conjunto_de_datos'.
+    """
+    name = first_csv(zf)
+    with zf.open(name) as handle:
+        return pd.read_csv(handle, dtype=str, low_memory=False)

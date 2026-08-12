@@ -69,7 +69,7 @@ def fetch_denue_csv(cache_dir: Path, force: bool = False) -> Path:
     if zip_path.exists() and not force:
         try:
             with zipfile.ZipFile(zip_path) as zf:
-                name = _first_csv(zf)
+                name = first_csv(zf)
                 return _extract(zf, name, cache_dir)
         except zipfile.BadZipFile as error:
             raise ValueError(
@@ -84,14 +84,14 @@ def fetch_denue_csv(cache_dir: Path, force: bool = False) -> Path:
 
     content = response.content
     with zipfile.ZipFile(io.BytesIO(content)) as zf:
-        name = _first_csv(zf)
+        name = first_csv(zf)
 
     zip_path.write_bytes(content)
     with zipfile.ZipFile(zip_path) as zf:
         return _extract(zf, name, cache_dir, overwrite=True)
 
 
-def _first_csv(zf: zipfile.ZipFile) -> str:
+def first_csv(zf: zipfile.ZipFile) -> str:
     """Nombre del CSV de datos dentro del zip.
 
     El zip trae el CSV bajo conjunto_de_datos/ junto con un diccionario de
