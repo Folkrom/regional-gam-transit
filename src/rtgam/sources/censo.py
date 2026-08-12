@@ -10,8 +10,11 @@ json y lo convierte shapely, que ya es dependencia desde la fuente OSM. Son
 los mismos poligonos del Marco Geoestadistico 2020, republicados.
 """
 
+import h3
 import numpy as np
 import pandas as pd
+
+from rtgam.areal import area_weights, hex_polygons
 
 GAM_MUN = "005"
 
@@ -129,3 +132,86 @@ def nse_index(ageb: pd.DataFrame) -> pd.Series:
         {name: _scale_unit(ageb[name]) for name in names}, index=ageb.index
     )
     return scaled.mean(axis=1, skipna=True)
+
+
+MIN_COVERAGE = 0.01
+
+
+def to_hex_features(
+    gam_hexes: pd.DataFrame,
+    ageb: pd.DataFrame,
+    polygons: dict,
+) -> pd.DataFrame:
+    """Emite las dos columnas que esta fuente posee.
+
+    gam_hexes: indexado por hex_id, columnas lat y lon.
+    ageb:      indexado por cve_ageb, columnas pobtot, internet, automovil y
+               escolaridad.
+    polygons:  cve_ageb -> Polygon, con exactamente las mismas claves que ageb.
+    Devuelve:  DataFrame indexado por hex_id con densidad_pob (cruda, en
+               hab/km2) y nivel_socioeconomico (escalado 0-1, ver nse_index).
+
+    Las dos columnas se reparten con ponderaciones DISTINTAS, y confundirlas
+    no lanza nada:
+
+    - densidad_pob va por AREA. Si el 38% del area de un AGEB cae en un
+      hexagono, ese hexagono recibe el 38% de su poblacion.
+    - nivel_socioeconomico va pesado por la POBLACION asignada. Un hexagono
+      que toca un pedazo grande y despoblado de un AGEB -un parque, un panteon,
+      una vialidad- no debe dejar que ese pedazo vote igual que una manzana
+      llena. El NSE es un atributo de personas, no de terreno.
+    """
+    if set(polygons) != set(ageb.index):
+        faltan_poligono = sorted(set(ageb.index) - set(polygons))[:5]
+        faltan_censo = sorted(set(polygons) - set(ageb.index))[:5]
+        raise ValueError(
+            f"Las claves de AGEB no coinciden entre censo y geometria. "
+            f"Con censo y sin poligono: {faltan_poligono}. Con poligono y sin "
+            f"censo: {faltan_censo}. Rellenar convertiria un hueco de datos en "
+            f"un descampado plausible."
+        )
+
+    weights = area_weights(hex_polygons(gam_hexes), polygons)
+    weights = weights[list(ageb.index)]
+
+    poblacion = weights @ ageb["pobtot"].to_numpy(dtype=float)
+
+    cubierto = weights.sum(axis=1)
+    sin_cobertura = cubierto[cubierto < MIN_COVERAGE]
+    if len(sin_cobertura):
+        raise ValueError(
+            f"{len(sin_cobertura)} hexagonos quedaron sin cobertura de AGEB, "
+            f"por ejemplo {list(sin_cobertura.index[:5])}. Una densidad de 0.0 "
+            f"seria el hexagono mas despoblado de la alcaldia sin que nada lo "
+            f"dijera."
+        )
+
+    nse = nse_index(ageb)
+    # El peso del NSE es la poblacion asignada, no el area: un pedazo grande y
+    # despoblado no debe pesar como uno chico y lleno. Los AGEB sin NSE quedan
+    # fuera del promedio en vez de entrar como cero, que los hundiria.
+    aporte = weights.mul(ageb["pobtot"].to_numpy(dtype=float), axis=1)
+    con_nse = aporte.loc[:, nse.notna().to_numpy()]
+    valores = nse.dropna().to_numpy(dtype=float)
+
+    total_nse = con_nse.sum(axis=1)
+    sin_nse = total_nse[total_nse <= 0]
+    if len(sin_nse):
+        raise ValueError(
+            f"{len(sin_nse)} hexagonos no tocan ningun AGEB con nivel "
+            f"socioeconomico, por ejemplo {list(sin_nse.index[:5])}. Un 0.0 "
+            f"seria el hexagono mas pobre de la alcaldia sin que nada lo dijera."
+        )
+
+    promedio = (con_nse @ valores) / total_nse
+
+    area_km2 = pd.Series(
+        {hex_id: h3.cell_area(hex_id, "km^2") for hex_id in gam_hexes.index}
+    )
+
+    return pd.DataFrame(
+        {
+            "densidad_pob": poblacion / area_km2,
+            "nivel_socioeconomico": promedio,
+        }
+    )
