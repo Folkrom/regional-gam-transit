@@ -33,10 +33,19 @@ def test_un_poligono_partido_en_dos_reparte_mitad_y_mitad():
 def test_los_pesos_de_un_poligono_cubierto_suman_uno():
     # Esta es LA propiedad que conserva la poblacion. Si esta prueba se cae,
     # la poblacion total deja de cuadrar con el censo.
+    #
+    # El area del poligono fuente (96) se elige distinta a la de un hexagono
+    # (100) a proposito: si coincidieran, dividir por el area del hexagono en
+    # vez de la del poligono fuente daria el mismo cociente por coincidencia
+    # algebraica y esta prueba no detectaria el error.
     hexes = {"a": cuadro(0, 0, 10), "b": cuadro(10, 0, 10), "c": cuadro(0, 10, 10)}
-    fuentes = {"p": Polygon([(5, 5), (15, 5), (15, 15), (5, 15)])}
+    fuentes = {"p": Polygon([(2, 2), (18, 2), (18, 8), (2, 8)])}
     pesos = area_weights(hexes, fuentes)
-    assert pesos["p"].sum() == pytest.approx(0.75)
+    # p mide 16x6=96 y cae enteramente dentro de a union b (interseccion con
+    # a: 8x6=48; con b: 8x6=48; con c: 0, pues p no llega a y=10). Esta
+    # cubierto por completo, asi que la suma de pesos debe dar exactamente
+    # 1.0.
+    assert pesos["p"].sum() == pytest.approx(1.0)
 
 
 def test_un_poligono_que_sobresale_suma_menos_de_uno():
