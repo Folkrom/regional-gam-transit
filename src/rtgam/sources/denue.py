@@ -69,7 +69,7 @@ def fetch_denue_csv(cache_dir: Path, force: bool = False) -> Path:
     if zip_path.exists() and not force:
         try:
             with zipfile.ZipFile(zip_path) as zf:
-                name = _first_csv(zf)
+                name = first_csv(zf)
                 return _extract(zf, name, cache_dir)
         except zipfile.BadZipFile as error:
             raise ValueError(
@@ -84,22 +84,23 @@ def fetch_denue_csv(cache_dir: Path, force: bool = False) -> Path:
 
     content = response.content
     with zipfile.ZipFile(io.BytesIO(content)) as zf:
-        name = _first_csv(zf)
+        name = first_csv(zf)
 
     zip_path.write_bytes(content)
     with zipfile.ZipFile(zip_path) as zf:
         return _extract(zf, name, cache_dir, overwrite=True)
 
 
-def _first_csv(zf: zipfile.ZipFile) -> str:
+def first_csv(zf: zipfile.ZipFile) -> str:
     """Nombre del CSV de datos dentro del zip.
 
     El zip trae el CSV bajo conjunto_de_datos/ junto con un diccionario de
-    datos (diccionario_de_datos/) y metadatos (metadatos/). Ordenados
-    alfabeticamente "diccionario_de_datos" va ANTES que "conjunto_de_datos",
-    asi que tomar el primer .csv a secas agarra el diccionario, no los datos:
-    se vio en la corrida real contra el zip de INEGI. Se prefiere el que vive
-    bajo conjunto_de_datos/, y solo si ninguno califica se cae al primero.
+    datos (diccionario_de_datos/) y metadatos (metadatos/). Cual sale primero
+    en namelist() depende del orden interno del zip, no del alfabeto, asi que
+    tomar el primer .csv a secas es una loteria: puede agarrar el diccionario
+    en vez de los datos. Se exige explicitamente el que vive bajo
+    conjunto_de_datos/, y se lanza si ninguno califica en vez de caer al
+    primero.
     """
     names = [n for n in zf.namelist() if n.lower().endswith(".csv")]
     if not names:
@@ -111,10 +112,11 @@ def _first_csv(zf: zipfile.ZipFile) -> str:
         if "conjunto_de_datos" in name:
             return name
 
-    # Sin fallback a names[0]. El zip real trae tres CSV y, alfabeticamente,
-    # diccionario_de_datos va ANTES que conjunto_de_datos: tomar el primero
-    # devolvia el diccionario en vez de los datos, y nada fallaba. Caer al
-    # primero otra vez seria repetir el bug en silencio.
+    # Sin fallback a names[0]. El zip real trae tres CSV y cual sale primero
+    # en namelist() depende del orden interno del zip, no del alfabeto: tomar
+    # el primero es una loteria que puede devolver el diccionario en vez de
+    # los datos, y nada fallaba. Caer al primero otra vez seria repetir el
+    # bug en silencio.
     raise ValueError(
         f"Ningun .csv del zip vive bajo conjunto_de_datos/. Encontrados: "
         f"{names}. Si INEGI cambio la estructura del zip, hay que revisar "

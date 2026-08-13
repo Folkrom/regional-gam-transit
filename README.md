@@ -62,11 +62,30 @@ del dashboard.
 - Las distancias son euclidianas y no conocen barreras. El cerro del
   Chiquihuite, el Río de los Remedios y la autopista México-Pachuca hacen
   que los hexágonos detrás de ellas salgan sobrevalorados.
-- De las **siete** variables de `config/weights.yaml` hay datos de cinco:
-  `flujo_transporte`, `competencia`, `atractores_denue`,
-  `accesibilidad_peatonal` (OSM, alcance a 800 m por la red) y
-  `atractores_osm` (OSM, espacio publico y transporte). Faltan dos:
-  `densidad_pob` y `nivel_socioeconomico` (los aporta el censo).
+- De las **siete** variables de `config/weights.yaml` hay datos de las
+  siete: `flujo_transporte`, `competencia`, `atractores_denue`,
+  `accesibilidad_peatonal` (OSM, alcance a 800 m por la red),
+  `atractores_osm` (OSM, espacio publico y transporte), `densidad_pob` y
+  `nivel_socioeconomico` (las dos últimas del censo AGEB 2020).
+- El reparto de `densidad_pob` es por área: supone que la población de un
+  AGEB se distribuye pareja dentro de su polígono. Es falso donde hay un
+  parque, un panteón o una zona industrial grande: esos hexágonos salen con
+  población que en realidad está concentrada al lado.
+- El censo es de 2020, seis años atrás.
+- El 3.1% de la población de GAM (36,272 de 1,173,351 habitantes) cae fuera
+  de la retícula de hexágonos: los AGEB tocan el borde de la alcaldía y
+  ceden área —y población— a territorio que la rejilla no cubre.
+- `nivel_socioeconomico` es un índice compuesto de tres proxies —internet,
+  automóvil, escolaridad—, no un dato del censo ni una medición de ingreso.
+  Sirve para ordenar hexágonos entre sí, no para afirmar el nivel de nadie.
+- La columna `nivel_socioeconomico` sale escalada 0-1 y no cruda, contra la
+  convención del resto de las fuentes.
+- Seis hexágonos de 724 no tocan ningún AGEB con nivel socioeconómico
+  medido: cinco caen sobre el AGEB `0718`, que tiene población cero, y uno
+  sobre el `1928`, confidencial. Su `nivel_socioeconomico` es el promedio
+  simple del de sus vecinos inmediatos. Ahí la columna describe al
+  vecindario, no a quien ocupa el polígono —que en cinco de los seis casos
+  no es nadie—. Su `densidad_pob` sí es la real, cero incluido.
 - DENUE se filtra por alcaldía, no por geometría, así que los negocios justo
   afuera del límite de GAM no cuentan aunque estén a menos de 800 m de un
   hexágono. Medido: 76 de los 724 hexágonos pierden más de un atractor y 33

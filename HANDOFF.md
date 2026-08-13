@@ -20,10 +20,10 @@ hexágonos sin calle a menos de 500 m).
 | `atractores_denue` | DENUE, sectores 46/72/61/62/71 | ✅ |
 | `accesibilidad_peatonal` | OSM, alcance a 800 m por la red | ✅ |
 | `atractores_osm` | OSM, espacio publico y transporte | ✅ |
-| `densidad_pob` | censo AGEB | ❌ falta |
-| `nivel_socioeconomico` | censo AGEB | ❌ falta |
+| `densidad_pob` | censo AGEB | ✅ |
+| `nivel_socioeconomico` | censo AGEB | ✅ |
 
-Score máximo actual: `0.5136`.
+Score máximo actual: `0.7590` (era `0.5136` con cinco variables, antes de integrar el censo).
 
 `atractores_osm` sale de 1,300 atractores (`park` 423, `pitch` 333, `garden`
 213, `marketplace` 104, `station` 84, `playground` 77, `sports_centre` 42,
@@ -50,6 +50,7 @@ uv run python scripts/01_build_grid.py
 uv run python scripts/02_transporte.py
 uv run python scripts/03_denue.py
 uv run python scripts/04_osm.py
+uv run python scripts/05_censo.py
 uv run python scripts/99_score.py
 uv run streamlit run app/dashboard.py
 ```
@@ -65,10 +66,10 @@ cada corrida, así que editarlo no sirve de nada).
 
 ## Lo siguiente
 
-**El censo AGEB es el único pendiente.** Aporta `densidad_pob` y
-`nivel_socioeconomico`, y es la primera fuente que necesita `geopandas`, porque
-hay que repartir población de polígonos AGEB a hexágonos por intersección de
-área.
+**Las siete variables ya tienen datos; no queda fuente pendiente.** El censo
+AGEB aportó `densidad_pob` y `nivel_socioeconomico` sin necesitar `geopandas`:
+el reparto de población de polígonos AGEB a hexágonos por intersección de área
+se hizo con `shapely` puro, igual que el resto del stack.
 
 (OSM ya quedó integrado: `accesibilidad_peatonal` y `atractores_osm` salen de
 `scripts/04_osm.py`. La técnica es Dijkstra acotado a 800 m sobre el grafo de
@@ -77,11 +78,15 @@ así porque `osmnx` arrastra `geopandas`, `pyproj`, `rtree` y `scikit-learn` y
 cachea por su cuenta en paralelo al patrón del proyecto. No es *betweenness*:
 es alcance, metros de calle recorribles desde el centroide del hexágono.)
 
-Hay una tercera idea barata que quedó anotada y sin hacer: usar **presencia** de
-estación como variable separada de **volumen**. Ya están descargadas las 117
-estaciones de OSM y solo 43 cruzaron con afluencia; las otras 74 —Cablebús,
-Metrobús, trolebús— tienen coordenadas aunque no tengamos sus números. Taparía
-el punto ciego de Cuautepec.
+Quedan dos ideas anotadas y sin hacer:
+
+- Usar **presencia** de estación como variable separada de **volumen**. Ya
+  están descargadas las 117 estaciones de OSM y solo 43 cruzaron con
+  afluencia; las otras 74 —Cablebús, Metrobús, trolebús— tienen coordenadas
+  aunque no tengamos sus números. Taparía el punto ciego de Cuautepec.
+- La deuda de `transporte.py::fetch_stations`: cachea `response.json()` crudo
+  y nunca revisa `remark`, el campo con el que Overpass avisa de resultados
+  parciales o truncados.
 
 ## Dónde los números NO son confiables
 
@@ -151,6 +156,17 @@ peatonal (17.6 MB de JSON) sí alcanzó a completarse y quedó en caché antes d
 morir, así que la siguiente corrida no la repitió; la de atractores (mucho más
 chica) se bajó aparte, como comando propio, y el resto del pipeline corrió en
 un tercer paso ya con las dos cachés en disco.
+
+**El censo AGEB trae dos trampas propias:**
+
+1. **Vivienda colectiva.** El AGEB `0154` tiene `VIVPAR_HAB == 0` con 8,184
+   habitantes: el `0/0` que resulta al calcular un promedio por vivienda lo
+   resuelve numpy con `nan` y un warning, no con una excepción, y el
+   `GRAPROES = 0.00` que queda ahí parece un dato válido sin serlo.
+2. **AGEB de población cero.** `0718` y `1078` tienen `POBTOT = 0`. Un
+   hexágono cuyo único AGEB es uno de esos no tiene NSE propio **ni
+   población que ponderar**, y el promedio pesado por población da `0/0`. Es
+   el caso que bloqueó la primera corrida real de esta fuente.
 
 ## Convenciones
 
