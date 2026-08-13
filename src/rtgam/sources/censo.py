@@ -146,6 +146,54 @@ def nse_index(ageb: pd.DataFrame) -> pd.Series:
 MIN_COVERAGE = 0.01
 
 
+def _nse_de_vecinos(promedio: pd.Series) -> pd.Series:
+    """Rellena el NSE de los hexagonos sin dato propio con el de sus vecinos.
+
+    Un hexagono se queda sin NSE propio cuando el unico AGEB que toca no tiene
+    indice: un poligono industrial o un panteon con poblacion cero, o uno que
+    el censo marco confidencial. Medido en GAM son 6 de 724, cinco de ellos
+    sobre el AGEB 0718, que tiene cero habitantes.
+
+    Toma el promedio simple de los vecinos de anillo 1 que si tengan valor. El
+    score responde "donde poner una cafeteria", y a un panteon no le llega
+    clientela de adentro: le llega de alrededor. Que su nivel socioeconomico
+    describa al vecindario es justo lo que el score necesita. Su densidad_pob
+    sigue siendo la real -cero donde no vive nadie-, asi que el score no lo
+    premia por estar vacio.
+
+    Simple y no pesado por poblacion a proposito: son seis hexagonos donde por
+    definicion no hay poblacion propia que ponderar.
+
+    Lee del estado ORIGINAL, no del que va rellenando. Dos hexagonos sin dato
+    que sean vecinos entre si se contagiarian uno al otro, y cual gana
+    dependeria del orden del recorrido: el mismo dato, el mismo codigo y dos
+    resultados distintos, sin que nada falle.
+
+    Si un hexagono no tiene NINGUN vecino con valor, lanza. Eso ya no es un
+    bolsillo aislado, es un hueco real de datos.
+    """
+    base = promedio.copy()
+    out = promedio.copy()
+    huerfanos = []
+
+    for hex_id in base.index[base.isna()]:
+        vecinos = [v for v in h3.grid_ring(hex_id, 1) if v in base.index]
+        cercanos = base[vecinos].dropna()
+        if cercanos.empty:
+            huerfanos.append(hex_id)
+            continue
+        out[hex_id] = cercanos.mean()
+
+    if huerfanos:
+        raise ValueError(
+            f"{len(huerfanos)} hexagonos no tocan ningun AGEB con nivel "
+            f"socioeconomico y ningun vecino suyo tiene uno, por ejemplo "
+            f"{huerfanos[:5]}. Un 0.0 seria el hexagono mas pobre de la "
+            f"alcaldia sin que nada lo dijera."
+        )
+    return out
+
+
 def to_hex_features(
     gam_hexes: pd.DataFrame,
     ageb: pd.DataFrame,
@@ -204,15 +252,13 @@ def to_hex_features(
     valores = nse.dropna().to_numpy(dtype=float)
 
     total_nse = con_nse.sum(axis=1)
-    sin_nse = total_nse[total_nse <= 0]
-    if len(sin_nse):
-        raise ValueError(
-            f"{len(sin_nse)} hexagonos no tocan ningun AGEB con nivel "
-            f"socioeconomico, por ejemplo {list(sin_nse.index[:5])}. Un 0.0 "
-            f"seria el hexagono mas pobre de la alcaldia sin que nada lo dijera."
-        )
+    con_dato = total_nse > 0
 
-    promedio = (con_nse @ valores) / total_nse
+    promedio = pd.Series(np.nan, index=weights.index, dtype=float)
+    promedio[con_dato] = (con_nse[con_dato] @ valores) / total_nse[con_dato]
+
+    if not con_dato.all():
+        promedio = _nse_de_vecinos(promedio)
 
     area_km2 = pd.Series(
         {hex_id: h3.cell_area(hex_id, "km^2") for hex_id in gam_hexes.index}

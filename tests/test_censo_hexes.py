@@ -236,3 +236,132 @@ def test_el_orden_no_desalinea_el_nse_con_un_ageb_nan_en_medio():
     # prueba anterior.
     assert features.loc[UNO, "nivel_socioeconomico"] == pytest.approx(1.0)
     assert features.loc[DOS, "nivel_socioeconomico"] == pytest.approx(0.0)
+
+
+def test_un_hexagono_sin_nse_propio_toma_el_promedio_de_sus_vecinos():
+    # UNO solo toca un AGEB sin NSE (como el 0718 real, sin ningun
+    # componente). v1 y v2 -vecinos inmediatos de UNO- si tienen NSE propio y
+    # son los unicos dos AGEB con dato, asi que fijan los extremos de la
+    # escala: v1 sale 1.0 y v2 sale 0.0. El promedio simple esperado es
+    # (1.0 + 0.0) / 2 = 0.5.
+    vecinos = h3.grid_ring(UNO, 1)
+    v1, v2 = vecinos[0], vecinos[1]
+    hexes = hexes_de(UNO, v1, v2)
+    ageb = ageb_frame(
+        [
+            ("central", 1000.0, float("nan"), float("nan"), float("nan")),
+            ("v1", 500.0, 1.0, 1.0, 15.0),
+            ("v2", 500.0, 0.0, 0.0, 3.0),
+        ]
+    )
+    polygons = {
+        "central": poligono_de(UNO),
+        "v1": poligono_de(v1),
+        "v2": poligono_de(v2),
+    }
+    features = to_hex_features(hexes, ageb, polygons)
+    assert features.loc[UNO, "nivel_socioeconomico"] == pytest.approx(0.5)
+
+
+def test_el_relleno_por_vecinos_no_depende_del_orden():
+    # UNO y DOS son vecinos mutuos y ninguno tiene NSE propio. w1 es vecino
+    # de UNO pero NO de DOS; w2 es vecino de DOS pero NO de UNO -se descarta
+    # con grid_ring para que cada uno solo pueda aportarle a su propio
+    # hexagono-. w1 y w2 son los unicos dos AGEB con NSE real y fijan los
+    # extremos de la escala: w1 sale 1.0 y w2 sale 0.0.
+    #
+    # Si el relleno leyera el resultado que se va rellenando en vez del
+    # original, UNO se procesa antes que DOS segun el orden del indice, y
+    # DOS terminaria promediando el 1.0 ya relleno de UNO junto con su propio
+    # w2, dando 0.5 en vez de 0.0. Leyendo del original, DOS solo ve w2.
+    ring_uno = h3.grid_ring(UNO, 1)
+    ring_dos = h3.grid_ring(DOS, 1)
+    assert DOS in ring_uno and UNO in ring_dos, "UNO y DOS deben ser vecinos mutuos"
+    w1 = next(h for h in ring_uno if h != DOS and h not in ring_dos)
+    w2 = next(h for h in ring_dos if h != UNO and h not in ring_uno)
+    hexes = hexes_de(UNO, DOS, w1, w2)
+    ageb = ageb_frame(
+        [
+            ("uno_nan", 1000.0, float("nan"), float("nan"), float("nan")),
+            ("dos_nan", 1000.0, float("nan"), float("nan"), float("nan")),
+            ("w1", 500.0, 1.0, 1.0, 15.0),
+            ("w2", 500.0, 0.0, 0.0, 3.0),
+        ]
+    )
+    polygons = {
+        "uno_nan": poligono_de(UNO),
+        "dos_nan": poligono_de(DOS),
+        "w1": poligono_de(w1),
+        "w2": poligono_de(w2),
+    }
+    features = to_hex_features(hexes, ageb, polygons)
+    assert features.loc[UNO, "nivel_socioeconomico"] == pytest.approx(1.0)
+    assert features.loc[DOS, "nivel_socioeconomico"] == pytest.approx(0.0)
+
+
+def test_sin_ningun_vecino_con_nse_sigue_lanzando():
+    # UNO y DOS son vecinos, y ninguno de los dos -ni ningun otro hexagono
+    # incluido- toca un AGEB con NSE. No hay ningun vecino con dato al que
+    # recurrir: debe lanzar, y el mensaje debe nombrar al hexagono.
+    hexes = hexes_de(UNO, DOS)
+    ageb = ageb_frame(
+        [
+            ("central", 1000.0, float("nan"), float("nan"), float("nan")),
+            ("vecino", 800.0, float("nan"), float("nan"), float("nan")),
+        ]
+    )
+    polygons = {"central": poligono_de(UNO), "vecino": poligono_de(DOS)}
+    with pytest.raises(ValueError) as exc_info:
+        to_hex_features(hexes, ageb, polygons)
+    assert UNO in str(exc_info.value)
+
+
+def test_el_relleno_no_altera_la_densidad():
+    # UNO toca un unico AGEB "vacio" con pobtot 0 -como el 0718 real, cero
+    # habitantes- y sin NSE propio. La densidad debe salir 0.0: ahi no vive
+    # nadie, y eso es correcto. El NSE en cambio sale relleno del vecindario:
+    # promedio simple de v1 (1.0) y v2 (0.0), o sea 0.5.
+    vecinos = h3.grid_ring(UNO, 1)
+    v1, v2 = vecinos[0], vecinos[1]
+    hexes = hexes_de(UNO, v1, v2)
+    ageb = ageb_frame(
+        [
+            ("vacio", 0.0, float("nan"), float("nan"), float("nan")),
+            ("v1", 500.0, 1.0, 1.0, 15.0),
+            ("v2", 500.0, 0.0, 0.0, 3.0),
+        ]
+    )
+    polygons = {
+        "vacio": poligono_de(UNO),
+        "v1": poligono_de(v1),
+        "v2": poligono_de(v2),
+    }
+    features = to_hex_features(hexes, ageb, polygons)
+    assert features.loc[UNO, "densidad_pob"] == pytest.approx(0.0)
+    assert features.loc[UNO, "nivel_socioeconomico"] == pytest.approx(0.5)
+
+
+def test_un_hexagono_con_nse_propio_no_lo_toca_el_relleno():
+    # UNO tiene NSE propio (via "u", el unico AGEB que lo toca) y DOS, su
+    # vecino, no tiene NSE propio y necesita relleno -toma el de w, vecino de
+    # DOS que si tiene dato-. "u" y "w" son los unicos dos AGEB con NSE real
+    # y fijan los extremos de la escala: u sale 1.0 y w sale 0.0. El relleno
+    # de DOS promedia, entre otros, el valor ya calculado de UNO -pero eso no
+    # debe tocar el valor de UNO mismo, que sigue siendo su propio ponderado.
+    ring_dos = h3.grid_ring(DOS, 1)
+    w = next(h for h in ring_dos if h != UNO)
+    hexes = hexes_de(UNO, DOS, w)
+    ageb = ageb_frame(
+        [
+            ("u", 1000.0, 1.0, 1.0, 15.0),
+            ("dos_nan", 800.0, float("nan"), float("nan"), float("nan")),
+            ("w", 500.0, 0.0, 0.0, 3.0),
+        ]
+    )
+    polygons = {
+        "u": poligono_de(UNO),
+        "dos_nan": poligono_de(DOS),
+        "w": poligono_de(w),
+    }
+    features = to_hex_features(hexes, ageb, polygons)
+    assert features.loc[UNO, "nivel_socioeconomico"] == pytest.approx(1.0)
