@@ -136,10 +136,30 @@ def test_la_poblacion_de_un_ageb_sin_nse_si_cuenta_para_densidad():
 
 
 def test_la_salida_no_trae_nan():
-    # merge_features lanza ante cualquier NaN de una fuente, y con razon.
-    hexes = hexes_de(UNO, DOS)
-    ageb = ageb_frame([("a", 1000.0, 0.5, 0.3, 10.0)])
-    features = to_hex_features(hexes, ageb, {"a": poligono_de(UNO, escala=6.0)})
+    # merge_features lanza ante cualquier NaN de una fuente, y con razon. La
+    # invariante mas importante que hay que proteger aqui es la ruta de
+    # relleno: sin ella, con_dato.all() nunca es False y _nse_de_vecinos ni
+    # se llama, dejando la garantia de "no NaN" verificada solo de rebote.
+    # "lejos" y "vecino_lejos" son un segundo grupo, bien separado del grupo
+    # UNO/DOS/"a" para que sus poligonos no se toquen entre si: "lejos" toca
+    # un unico AGEB sin NSE, y su vecino inmediato "vecino_lejos" si tiene
+    # NSE propio, asi que "lejos" pasa por el relleno y debe salir sin NaN.
+    lejos = h3.grid_ring(UNO, 5)[0]
+    vecino_lejos = h3.grid_ring(lejos, 1)[0]
+    hexes = hexes_de(UNO, DOS, lejos, vecino_lejos)
+    ageb = ageb_frame(
+        [
+            ("a", 1000.0, 0.5, 0.3, 10.0),
+            ("lejos_sin_nse", 300.0, float("nan"), float("nan"), float("nan")),
+            ("lejos_con_nse", 400.0, 0.6, 0.4, 9.0),
+        ]
+    )
+    polygons = {
+        "a": poligono_de(UNO, escala=6.0),
+        "lejos_sin_nse": poligono_de(lejos),
+        "lejos_con_nse": poligono_de(vecino_lejos),
+    }
+    features = to_hex_features(hexes, ageb, polygons)
     assert not features.isna().any().any()
 
 
@@ -343,11 +363,14 @@ def test_el_relleno_no_altera_la_densidad():
 
 def test_un_hexagono_con_nse_propio_no_lo_toca_el_relleno():
     # UNO tiene NSE propio (via "u", el unico AGEB que lo toca) y DOS, su
-    # vecino, no tiene NSE propio y necesita relleno -toma el de w, vecino de
-    # DOS que si tiene dato-. "u" y "w" son los unicos dos AGEB con NSE real
-    # y fijan los extremos de la escala: u sale 1.0 y w sale 0.0. El relleno
-    # de DOS promedia, entre otros, el valor ya calculado de UNO -pero eso no
-    # debe tocar el valor de UNO mismo, que sigue siendo su propio ponderado.
+    # vecino, no tiene NSE propio y necesita relleno. Los vecinos de DOS
+    # presentes en el indice son UNO (1.0) y w (0.0), asi que DOS promedia
+    # los dos y sale 0.5 -no "toma el de w" a secas-. "u" y "w" son los
+    # unicos dos AGEB con NSE real y fijan los extremos de la escala: u sale
+    # 1.0 y w sale 0.0. El punto de la prueba: el relleno de DOS usa, entre
+    # otros, el valor ya calculado de UNO, pero eso no debe tocar el valor de
+    # UNO mismo, que sigue siendo su propio ponderado (1.0), pase lo que pase
+    # con DOS.
     ring_dos = h3.grid_ring(DOS, 1)
     w = next(h for h in ring_dos if h != UNO)
     hexes = hexes_de(UNO, DOS, w)
@@ -365,3 +388,37 @@ def test_un_hexagono_con_nse_propio_no_lo_toca_el_relleno():
     }
     features = to_hex_features(hexes, ageb, polygons)
     assert features.loc[UNO, "nivel_socioeconomico"] == pytest.approx(1.0)
+    assert features.loc[DOS, "nivel_socioeconomico"] == pytest.approx(0.5)
+
+
+def test_el_relleno_promedia_y_no_toma_la_mediana_de_los_vecinos():
+    # UNO solo toca un AGEB sin NSE. v1, v2 y v3 son tres vecinos reales de
+    # anillo 1 con NSE propio y valores ASIMETRICOS: 1.0, 0.9 y 0.0 -no
+    # equiespaciados, para que promedio y mediana difieran de verdad-. Con
+    # solo estos tres AGEB definiendo el rango de cada componente, nse_index
+    # da exactamente esas fracciones (el mismo patron de extremos que fija
+    # la escala en el resto del archivo). El promedio simple esperado es
+    # (1.0 + 0.9 + 0.0) / 3 = 0.6333..., mientras que la mediana de
+    # {0.0, 0.9, 1.0} es 0.9: con solo dos vecinos con dato -o uno solo- la
+    # media y la mediana coinciden por definicion y ninguna prueba anterior
+    # de este archivo distingue una de la otra.
+    vecinos = h3.grid_ring(UNO, 1)
+    v1, v2, v3 = vecinos[0], vecinos[1], vecinos[2]
+    hexes = hexes_de(UNO, v1, v2, v3)
+    ageb = ageb_frame(
+        [
+            ("central", 1000.0, float("nan"), float("nan"), float("nan")),
+            ("v1", 500.0, 1.0, 1.0, 15.0),
+            ("v2", 500.0, 0.9, 0.9, 13.5),
+            ("v3", 500.0, 0.0, 0.0, 0.0),
+        ]
+    )
+    polygons = {
+        "central": poligono_de(UNO),
+        "v1": poligono_de(v1),
+        "v2": poligono_de(v2),
+        "v3": poligono_de(v3),
+    }
+    features = to_hex_features(hexes, ageb, polygons)
+    esperado = (1.0 + 0.9 + 0.0) / 3
+    assert features.loc[UNO, "nivel_socioeconomico"] == pytest.approx(esperado)
