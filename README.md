@@ -72,7 +72,7 @@ del dashboard.
   parque, un panteón o una zona industrial grande: esos hexágonos salen con
   población que en realidad está concentrada al lado.
 - El censo es de 2020, seis años atrás.
-- El 3.1% de la población de GAM (36,599 de 1,173,351 habitantes) cae fuera
+- El 3.1% de la población de GAM (36,272 de 1,173,351 habitantes) cae fuera
   de la retícula de hexágonos: los AGEB tocan el borde de la alcaldía y
   ceden área —y población— a territorio que la rejilla no cubre.
 - `nivel_socioeconomico` es un índice compuesto de tres proxies —internet,

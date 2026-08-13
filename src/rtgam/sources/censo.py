@@ -228,12 +228,21 @@ def to_hex_features(
             f"un descampado plausible."
         )
 
-    weights = area_weights(hex_polygons(gam_hexes), polygons)
+    hex_polys = hex_polygons(gam_hexes)
+    weights = area_weights(hex_polys, polygons)
     weights = weights[list(ageb.index)]
 
     poblacion = weights @ ageb["pobtot"].to_numpy(dtype=float)
 
-    cubierto = weights.sum(axis=1)
+    # area_weights normaliza por el area del ORIGEN, no del hexagono, asi que
+    # sumar la fila NO da la cobertura: da una suma de fracciones de poligonos
+    # distintos, sin significado geometrico. Se deshace esa normalizacion
+    # multiplicando por el area de cada AGEB y se divide entre la del hexagono.
+    # Medido: la suma cruda correlaciona 0.209 con la cobertura real, y 84 de
+    # los 724 hexagonos daban menos de 0.10 estando cubiertos por completo.
+    areas_origen = pd.Series({k: polygons[k].area for k in weights.columns})
+    areas_hex = pd.Series({h: hex_polys[h].area for h in weights.index})
+    cubierto = weights.mul(areas_origen, axis=1).sum(axis=1) / areas_hex
     sin_cobertura = cubierto[cubierto < MIN_COVERAGE]
     if len(sin_cobertura):
         raise ValueError(
@@ -388,8 +397,9 @@ def _read_censo_csv(zf: zipfile.ZipFile) -> pd.DataFrame:
     """Lee el CSV de datos del zip, como texto.
 
     first_csv de denue.py ya resuelve el mismo problema: el zip del INEGI trae
-    un diccionario de datos y unos metadatos junto a los datos, y ordenados
-    alfabeticamente 'diccionario_de_datos' va ANTES que 'conjunto_de_datos'.
+    un diccionario de datos y unos metadatos junto a los datos, y cual sale
+    primero en namelist() depende del orden interno del zip, no del alfabeto,
+    asi que tomar el primer .csv a secas es una loteria.
     """
     name = first_csv(zf)
     with zf.open(name) as handle:

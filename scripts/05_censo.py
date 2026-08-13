@@ -14,6 +14,7 @@ no en background.
 import argparse
 from pathlib import Path
 
+import h3
 import pandas as pd
 
 from rtgam.sources.censo import (
@@ -76,7 +77,9 @@ def main() -> None:
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     features.to_parquet(OUTPUT)
 
-    area_km2 = 0.12156802899339546  # H3 resolucion 9
+    area_km2 = pd.Series(
+        {hex_id: h3.cell_area(hex_id, "km^2") for hex_id in features.index}
+    )
     repartida = (features["densidad_pob"] * area_km2).sum()
     print()
     print(

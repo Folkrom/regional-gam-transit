@@ -6,7 +6,7 @@ import pytest
 from shapely.geometry import Polygon
 
 from rtgam.areal import hex_polygons
-from rtgam.sources.censo import to_hex_features
+from rtgam.sources.censo import MIN_COVERAGE, to_hex_features
 
 
 def hexes_de(*ids):
@@ -180,6 +180,42 @@ def test_un_hexagono_sin_cobertura_lanza_en_vez_de_salir_en_cero():
     ageb = ageb_frame([("a", 1000.0, 0.5, 0.3, 10.0)])
     with pytest.raises(ValueError, match="sin cobertura"):
         to_hex_features(hexes, ageb, {"a": poligono_de(UNO)})
+
+
+def test_un_hexagono_dentro_de_un_ageb_enorme_no_dispara_la_guarda_de_cobertura():
+    # "grande" es UNO escalado 12x desde su propio centroide: lo contiene por
+    # completo, pero area(hex)/area(grande) = 1/144 queda muy por debajo de
+    # MIN_COVERAGE. Con la formula vieja (weights.sum(axis=1), que suma
+    # fracciones de AREA DEL AGEB y no del hexagono) esto disparaba la guarda
+    # con datos perfectamente buenos; con la correcta la cobertura es 1.0.
+    hexes = hexes_de(UNO)
+    hex_poly = hex_polygons(hexes)[UNO]
+    grande = poligono_de(UNO, escala=12.0)
+    assert grande.contains(hex_poly), "el AGEB debe cubrir el hexagono entero"
+    assert (hex_poly.area / grande.area) < MIN_COVERAGE, (
+        "el hexagono debe ser una fraccion diminuta del AGEB"
+    )
+
+    ageb = ageb_frame([("grande", 1000.0, 0.5, 0.3, 10.0)])
+    features = to_hex_features(hexes, ageb, {"grande": grande})
+    esperado = (1000.0 / 144) / h3.cell_area(UNO, "km^2")
+    assert features.loc[UNO, "densidad_pob"] == pytest.approx(esperado, rel=1e-6)
+
+
+def test_un_hexagono_apenas_rozado_si_dispara_la_guarda_de_cobertura():
+    # "rozado" esta centrado en DOS y escalado apenas lo suficiente (1.02x)
+    # para clavar una esquina diminuta en UNO. Fija el umbral desde abajo: el
+    # revisor bajo MIN_COVERAGE a 1e-12 y las 220 pruebas de entonces seguian
+    # en verde, asi que nada probaba que la guarda dispare de verdad.
+    hexes = hexes_de(UNO)
+    hex_poly = hex_polygons(hexes)[UNO]
+    rozado = poligono_de(DOS, escala=1.02)
+    cubierto_real = hex_poly.intersection(rozado).area / hex_poly.area
+    assert 0 < cubierto_real < MIN_COVERAGE, "el rozon debe ser real pero diminuto"
+
+    ageb = ageb_frame([("rozado", 1000.0, 0.5, 0.3, 10.0)])
+    with pytest.raises(ValueError, match=UNO):
+        to_hex_features(hexes, ageb, {"rozado": rozado})
 
 
 def test_un_hexagono_cubierto_pero_sin_nse_lanza():
