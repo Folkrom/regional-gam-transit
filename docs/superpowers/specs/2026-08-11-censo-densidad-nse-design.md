@@ -408,3 +408,33 @@ comportamiento que fija:
 - Datos a nivel manzana. Están en el mismo CSV y darían más resolución, pero
   multiplican por 30 las filas y traen muchos más confidenciales.
 - `geopandas`. No hace falta con el GeoJSON.
+
+## Corrección medida en la implementación
+
+La sección "Valores confidenciales: el `*`" afirmaba que «solo un AGEB de 14
+habitantes carece de índice» y que «en la práctica todos los hexágonos tienen
+al menos un AGEB con NSE». Medido contra los datos reales: son **cuatro** AGEB
+sin índice (`0154`, `0718`, `1078`, `1928`), y **seis** hexágonos de 724 no
+tocan ninguno con NSE. La premisa era falsa.
+
+La causa que el diseño no contempló: AGEB con **población cero**. `0718` y
+`1078` tienen `POBTOT = 0`, así que el promedio pesado por población no tiene
+qué ponderar — no es que falte el dato de NSE, es que no hay habitante al que
+atribuírselo.
+
+La resolución fue implementar el respaldo por vecinos de anillo 1 que la
+sección de limitaciones ya prometía: un hexágono sin AGEB con NSE propio toma
+el promedio simple del NSE de sus vecinos inmediatos que sí lo tengan, leyendo
+del estado original. La guarda sobrevive para el caso en que ningún vecino
+tenga valor tampoco; ahí sí lanza.
+
+La frase de la sección de limitaciones sobre que "los hexágonos que tocan
+vivienda colectiva promedian con los AGEB vecinos" describía mal el mecanismo.
+El promedio ponderado por población ya excluye de por sí a los AGEB sin NSE,
+sin necesidad de respaldo alguno: el AGEB `0154` (vivienda colectiva, 8,184
+habitantes) simplemente no aporta al promedio de sus hexágonos, que se calcula
+igual con los AGEB vecinos que sí tienen NSE y población que ponderar. El
+respaldo por vecinos solo entra cuando **no queda ningún** AGEB con NSE que
+tocar, que es un caso distinto y más raro: cinco de los seis hexágonos afectados
+caen sobre el AGEB `0718`, de población cero, y uno sobre el `1928`,
+confidencial.
