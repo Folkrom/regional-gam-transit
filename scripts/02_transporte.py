@@ -42,7 +42,8 @@ VALUE_COL = "afluencia"
 # Por eso esta fuente emite dos columnas y no una: flujo_transporte mide
 # volumen y solo existe para el Metro, y presencia_transporte mide cercania
 # a una estacion de riel o cable, que si existe para todos. El corredor del
-# Cablebus Linea 1 tenia flujo exactamente cero en sus 74 hexagonos.
+# Cablebus Linea 1 tenia flujo exactamente cero en sus 91 hexagonos (los que
+# tienen presencia de una estacion clase cable y flujo_transporte en cero).
 #
 # Lo que sigue sin haber es cuanta gente usa el Cablebus: la presencia dice
 # que la estacion esta ahi, no que este llena.

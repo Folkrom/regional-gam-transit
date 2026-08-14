@@ -182,7 +182,8 @@ def drop_nested(frame: pd.DataFrame, polygons: list) -> pd.DataFrame:
     cancha no es un destino distinto del deportivo que la contiene: es el mismo
     sitio digitalizado con mas detalle. Medido en GAM (sin estaciones, que ya
     no se piden): 470 de 1,688 atractores (28%) caen dentro de otro. El
-    Deportivo Hermanos Galeana trae 56 canchas y contaba 57 veces.
+    Deportivo Hermanos Galeana trae 59 atractores mapeados aparte -56 canchas,
+    2 juegos infantiles y un jardin- y contaba 60 veces.
 
     El contenedor tiene que ser ESTRICTAMENTE mayor. Dos poligonos del mismo
     tamano que se traslapan son dos sitios distintos mal digitalizados, no uno

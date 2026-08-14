@@ -116,8 +116,9 @@ del dashboard.
 - **Lo anidado ya no cuenta aparte**, pero la regla es geométrica y por lo
   tanto imperfecta. Un atractor cuyo punto cae dentro del polígono de otro
   *estrictamente mayor* se descarta: eso quitó 470 de 1,688 atractores (28%) y
-  dejó 1,218. El Deportivo Hermanos Galeana trae 56 canchas mapeadas aparte y
-  contaba 57 veces; ahora cuenta una. El Oceanía pasó de 30 a 1. Lo que la
+  dejó 1,218. El Deportivo Hermanos Galeana trae 59 atractores mapeados
+  aparte —56 canchas, 2 juegos infantiles y un jardín— y contaba 60 veces;
+  ahora cuenta una. El Oceanía pasó de 30 a 1. Lo que la
   regla no ve: una cancha cuyo centroide caiga *fuera* del polígono de su
   parque —por un contorno mal digitalizado— sigue contando doble, y un
   contenedor mapeado como nodo suelto no absorbe a nadie, porque un punto no

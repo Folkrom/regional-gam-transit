@@ -11,7 +11,7 @@
 # Metro, la unica publicada por estacion) y presencia_transporte es si hay
 # estacion (geometria de OSM, que si cubre el Cablebus). El total del bloque
 # no subio: si presencia entrara encima de un flujo intacto, diluiria en
-# silencio el peso relativo de las otras cinco variables.
+# silencio el peso relativo de las otras seis variables.
 weights:
   flujo_transporte: 0.25
   presencia_transporte: 0.10
