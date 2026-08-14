@@ -1,12 +1,12 @@
-# Handoff — estado al 2026-08-06
+# Handoff — estado al 2026-08-14
 
 Dónde quedó el proyecto y qué conviene saber antes de tocar nada.
 
 ## Estado
 
-`main` en `de8974e`, con la rebanada vertical, DENUE y OSM ya integradas.
-160 pruebas pasando en 0.8 s, sin red. El pipeline completo corre de punta a punta
-y el dashboard levanta.
+`main` en `f9de6f0`, con las ocho variables integradas. 247 pruebas pasando en
+1 s, sin red. El pipeline completo corre de punta a punta y el dashboard
+levanta.
 
 **Cobertura del score: 724 de 724 hexágonos.** Arrancó en 218 con solo la fuente
 de transporte; DENUE cubrió el 70% de GAM que estaba invisible, y OSM cerró los
@@ -24,23 +24,29 @@ hexágonos sin calle a menos de 500 m).
 | `densidad_pob` | censo AGEB | ✅ |
 | `nivel_socioeconomico` | censo AGEB | ✅ |
 
-Score máximo actual: `0.7590` (era `0.5136` con cinco variables, antes de integrar el censo).
+Score máximo actual: `0.7210` (era `0.5136` con cinco variables, y `0.7552` con
+siete, antes de repartir el peso del transporte entre volumen y presencia).
 
-`atractores_osm` sale de 1,300 atractores (`park` 423, `pitch` 333, `garden`
-213, `marketplace` 104, `station` 84, `playground` 77, `sports_centre` 42,
-`square` 24). Dos reglas los recortan, y las dos importan:
+`atractores_osm` sale de 1,218 atractores, ya **sin estaciones**: se fueron a
+`presencia_transporte` y ni siquiera se piden en la consulta de Overpass.
+Contaban en las dos variables —84 de 1,300— y eso ponía dos sliders del
+dashboard moviendo la misma señal.
+
+Una sola regla los recorta ahora, y importa:
 
 - **Anidamiento.** Un atractor cuyo punto cae dentro del polígono de otro
-  *estrictamente mayor* no cuenta aparte: son 499 de 1,776 (28%). El Deportivo
-  Hermanos Galeana traía 58 canchas mapeadas por separado y contaba 59 veces.
-  Por eso la consulta pide `out geom` y no `out tags center`: un centro no
-  contiene nada. La caché se llama `osm_atractores_geom.json`, con nombre
-  distinto al de la vieja a propósito — reusar aquella dejaría de detectar el
-  anidamiento en silencio.
-- **Dedup de estaciones por nombre**, igual que en `transporte.py`, porque OSM
-  trae un nodo Y un way para la misma estación. Los demás tipos **no** se
-  deduplican por nombre a propósito: los nombres de parque y cancha en GAM son
-  genéricos y se repiten entre sitios genuinamente distintos.
+  *estrictamente mayor* no cuenta aparte: son 470 de 1,688 (28%). El Deportivo
+  Hermanos Galeana trae 59 atractores mapeados por separado —56 canchas, 2
+  juegos infantiles y un jardín— y contaba 60 veces. Por eso la consulta pide
+  `out geom` y no `out tags center`: un centro no contiene nada. La caché se
+  llama `osm_atractores_geom.json`, con nombre distinto al de la vieja a
+  propósito — reusar aquella dejaría de detectar el anidamiento en silencio.
+
+El dedup por nombre que había aquí murió con las estaciones: solo aplicaba a
+ellas. Los demás tipos **nunca** se dedup por nombre, y es deliberado: los
+nombres de parque y cancha en GAM son genéricos y se repiten entre sitios
+genuinamente distintos. `transporte.py` conserva su propio dedup por nombre,
+que es el que importa ahora.
 
 ## Cómo correrlo
 
@@ -67,10 +73,15 @@ cada corrida, así que editarlo no sirve de nada).
 
 ## Lo siguiente
 
-**Las siete variables ya tienen datos; no queda fuente pendiente.** El censo
+**Las ocho variables ya tienen datos; no queda fuente pendiente.** El censo
 AGEB aportó `densidad_pob` y `nivel_socioeconomico` sin necesitar `geopandas`:
 el reparto de población de polígonos AGEB a hexágonos por intersección de área
 se hizo con `shapely` puro, igual que el resto del stack.
+
+`presencia_transporte` fue la última en entrar y **no necesitó fuente nueva**:
+reusa las 117 estaciones que `transporte.py` ya descargaba. La fuente 1 emite
+dos columnas, y su parquet se llama ahora `transporte.parquet`, no
+`flujo_transporte.parquet`.
 
 (OSM ya quedó integrado: `accesibilidad_peatonal` y `atractores_osm` salen de
 `scripts/04_osm.py`. La técnica es Dijkstra acotado a 800 m sobre el grafo de
@@ -79,26 +90,37 @@ así porque `osmnx` arrastra `geopandas`, `pyproj`, `rtree` y `scikit-learn` y
 cachea por su cuenta en paralelo al patrón del proyecto. No es *betweenness*:
 es alcance, metros de calle recorribles desde el centroide del hexágono.)
 
-Quedan dos ideas anotadas y sin hacer:
+Quedan dos deudas anotadas y sin hacer, las dos del mismo tipo — el número
+equivocado que no lanza nada:
 
-- Usar **presencia** de estación como variable separada de **volumen**. Ya
-  están descargadas las 117 estaciones de OSM y solo 43 cruzaron con
-  afluencia; las otras 74 —Cablebús, Metrobús, trolebús— tienen coordenadas
-  aunque no tengamos sus números. Taparía el punto ciego de Cuautepec.
-- La deuda de `transporte.py::fetch_stations`: cachea `response.json()` crudo
-  y nunca revisa `remark`, el campo con el que Overpass avisa de resultados
-  parciales o truncados.
+- **`transporte.py::fetch_stations` cachea `response.json()` crudo y nunca
+  revisa `remark`**, el campo con el que Overpass avisa de resultados parciales
+  o truncados. `osm.py` ya tiene `validate_payload` haciendo exactamente esa
+  comprobación, y valida ANTES de escribir la caché; `transporte.py` no. Un
+  payload truncado quedaría persistido y envenenaría todas las corridas
+  siguientes. Es el arreglo más barato que queda: la función a copiar ya
+  existe.
+- **`accumulate_decay` no tiene cubierta la frontera exacta del corte.** Ningún
+  test pone un punto a exactamente `DECAY_CUTOFF_M`, así que mutar `<=` por `<`
+  sobrevive con la suite entera en verde. Se detectó al arreglar el mismo hueco
+  en `nearest_decay`, y se dejó fuera de aquella rama a propósito: es
+  preexistente y afecta a cuatro variables, no solo a la que se estaba
+  agregando. Merece su propia rama.
 
 ## Dónde los números NO son confiables
 
 Esto importa más que el score. Está también en el README, y conviene releerlo
 antes de sacar conclusiones del mapa.
 
-- **Cuautepec sale subrepresentado.** Solo el Metro publica afluencia por
-  estación; Metrobús, Cablebús, Tren Ligero y Trolebús solo dan totales por
-  línea. El Cablebús Línea 1 corre entero dentro de GAM y aporta cero. No se
-  repartió el total de línea entre sus estaciones a propósito: parecería dato y
-  sería suposición.
+- **Cuautepec sigue subrepresentado, pero ya no invisible.** Solo el Metro
+  publica afluencia por estación; Metrobús, Cablebús, Tren Ligero y Trolebús
+  solo dan totales por línea, y no se repartió el total entre estaciones a
+  propósito: parecería dato y sería suposición. `presencia_transporte` tapa la
+  parte que sí se puede tapar sin inventar nada — que la estación existe. Los
+  91 hexágonos del corredor del Cablebús Línea 1 tenían `flujo_transporte`
+  exactamente cero y un rank medio de 454.6 de 724; ahora quedan en 376.0.
+  **Ninguno entra al top 100**: el mejor queda en el puesto 219. La variable
+  dice que hay estación, no cuánta gente la usa.
 - **Los bordes de GAM salen bajos.** DENUE se filtra por alcaldía, no por
   geometría, así que negocios a menos de 800 m de un hexágono no cuentan si están
   del otro lado del límite. Medido: 76 de 724 hexágonos pierden más de un
@@ -133,15 +155,29 @@ Cosas que ya costaron caro y conviene no repetir.
 **Los datos abiertos mienten en silencio.** El CSV del Metro viene con doble
 codificación UTF-8: 52 de 163 estaciones llegaban como `AragÃ³n`, y el join las
 perdía sin error. El de DENUE es `latin-1`, no utf-8. El zip de DENUE trae tres
-CSV y `diccionario_de_datos/` va antes que `conjunto_de_datos/` alfabéticamente,
-así que tomar el primero devolvía el diccionario. **Antes de diseñar sobre una
-fuente nueva, ábrela y míralas.**
+CSV y tomar el primero devolvía el diccionario de datos en vez de los datos —
+no por orden alfabético, que iría al revés (`c` < `d`), sino porque el orden lo
+manda la estructura interna del zip. **Antes de diseñar sobre una fuente nueva,
+ábrela y míralas.**
 
-**Cuidado con las pruebas que pasan por la razón equivocada.** Pasó tres veces:
-una prueba de encoding que escribía y leía con la misma constante, unas pruebas
-de haversine que nunca ejercitaban el término del coseno, y una prueba de patrón
-cuyos nombres cruzaban por otra alternativa. Si una prueba fija algo, rómpelo a
-propósito y confirma que falla.
+**Cuidado con las pruebas que pasan por la razón equivocada.** Es *la* trampa
+recurrente de este proyecto y ya lleva ocho apariciones. Las primeras tres: una
+prueba de encoding que escribía y leía con la misma constante, unas de haversine
+que nunca ejercitaban el término del coseno, y una de patrón cuyos nombres
+cruzaban por otra alternativa. Después, en el censo, ningún test distinguía
+`mean` de `median` porque el fixture tenía dos vecinos simétricos. Y en la rama
+de `presencia_transporte`, cuatro más: la frontera del corte a 800 m (todos los
+puntos caían lejos), la precedencia cable-sobre-riel (nunca se enfrentaban),
+una estación de riel sola (el fixture la colocaba encima de una de cable y el
+máximo lo enmascaraba), y `place=square` como atractor (nadie lo probaba solo).
+
+El patrón es siempre el mismo: **el fixture hace coincidir el camino correcto
+con el incorrecto**, así que la prueba no puede distinguirlos. En los ocho casos
+la implementación estaba bien; lo que faltaba era el test que la anclara.
+
+Por eso las revisiones de este repo se hacen **mutando el código real** y
+confirmando que la suite se pone roja, no leyendo el diff. Leer no cazó ninguno
+de los ocho; mutar los cazó todos.
 
 **pyarrow está fijado en `<22` y no es capricho.** La 25.0.0 revienta el
 dashboard con SIGSEGV dentro del hilo de scripts de Streamlit, de forma
@@ -183,7 +219,12 @@ un tercer paso ya con las dos cachés en disco.
   verificó con DENUE: entró sin tocar una sola línea de código existente.
 - Validar **antes** de escribir caché, nunca al revés. Se corrigió tres veces por
   no hacerlo.
-- El kernel es fijo: `exp(-d/300)`, cero pasados 800 m.
+- El kernel es fijo: `exp(-d/300)`, cero pasados 800 m. Dos primitivas lo
+  aplican y **no son intercambiables**: `accumulate_decay` **suma** sobre todos
+  los puntos —cuenta cosas, y por eso pondera— y `nearest_decay` toma el
+  **máximo** —mide cercanía al más cercano, no lleva columna de valor, y es
+  inmune por construcción a que OSM parta un mismo sitio en varios nodos—.
+  Elegir la equivocada no falla: da un número plausible.
 
 ## Documentos
 
