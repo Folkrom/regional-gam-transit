@@ -32,6 +32,7 @@ uv run python scripts/01_build_grid.py
 uv run python scripts/02_transporte.py
 uv run python scripts/03_denue.py
 uv run python scripts/04_osm.py
+uv run python scripts/05_censo.py
 uv run python scripts/99_score.py
 uv run streamlit run app/dashboard.py
 ```
@@ -56,16 +57,28 @@ del dashboard.
 ## Zonas donde los números NO son confiables
 
 - Solo el Metro publica afluencia por estación. Metrobús, Cablebús, Tren
-  Ligero y Trolebús solo dan totales por línea. El Cablebús Línea 1 corre
-  entero dentro de GAM y sirve a Cuautepec, así que ese corredor aparece con
-  menos flujo del que realmente tiene.
+  Ligero y Trolebús solo dan totales por línea. Por eso el transporte entra
+  al score con dos variables: `flujo_transporte` (volumen, solo Metro) y
+  `presencia_transporte` (cercanía a una estación de riel o cable, que sí
+  cubre el Cablebús).
+- `presencia_transporte` dice que **existe** una estación, no cuánta gente la
+  usa. Un Cablebús con 5,000 pasajeros al día y uno con 50,000 puntúan igual.
+- El corredor del Cablebús Línea 1 —91 de los 724 hexágonos, los que tienen
+  `presencia_transporte` > 0 y `flujo_transporte` en cero— tenía un rank
+  promedio de 454.6 de 724 antes de esta variable; con ella pasa a 376.0.
+  Sube, pero **ninguno de los 91 entra al top 100**: el mejor hexágono del
+  corredor queda en el puesto 219. Su `nivel_socioeconomico` medio (0.37)
+  sigue por debajo del promedio de GAM (0.44) —eso es un hecho del censo, no
+  un artefacto del score—, aunque su `atractores_denue` y `atractores_osm`
+  medios salen por *encima* del promedio de GAM: el corredor no está
+  comercialmente vacío, solo tiene menos NSE.
 - Las distancias son euclidianas y no conocen barreras. El cerro del
   Chiquihuite, el Río de los Remedios y la autopista México-Pachuca hacen
   que los hexágonos detrás de ellas salgan sobrevalorados.
-- De las **siete** variables de `config/weights.yaml` hay datos de las
-  siete: `flujo_transporte`, `competencia`, `atractores_denue`,
-  `accesibilidad_peatonal` (OSM, alcance a 800 m por la red),
-  `atractores_osm` (OSM, espacio publico y transporte), `densidad_pob` y
+- De las **ocho** variables de `config/weights.yaml` hay datos de las ocho:
+  `flujo_transporte`, `presencia_transporte`, `competencia`,
+  `atractores_denue`, `accesibilidad_peatonal` (OSM, alcance a 800 m por la
+  red), `atractores_osm` (OSM, solo espacio público), `densidad_pob` y
   `nivel_socioeconomico` (las dos últimas del censo AGEB 2020).
 - El reparto de `densidad_pob` es por área: supone que la población de un
   AGEB se distribuye pareja dentro de su polígono. Es falso donde hay un
@@ -96,23 +109,26 @@ del dashboard.
   seguirían ciegos.
 - Los polígonos grandes de OSM van por su centroide, así que el Bosque de San
   Juan de Aragón (~1.3 km de largo) sale subestimado. Medido sobre la corrida
-  vigente (`data/raw/osm_atractores_geom.json`): 39 de los 1,300 atractores
-  pasan de 400 m de extensión. 1,181 de ellos tienen polígono; los demás son
-  nodos sueltos, que no tienen extensión que subestimar.
+  vigente (`data/raw/osm_atractores_geom.json`): 56 de los 1,218 atractores
+  pasan de 400 m de extensión (diagonal del bounding box). 1,148 de ellos
+  tienen polígono; los 70 restantes son nodos sueltos, que no tienen
+  extensión que subestimar.
 - **Lo anidado ya no cuenta aparte**, pero la regla es geométrica y por lo
   tanto imperfecta. Un atractor cuyo punto cae dentro del polígono de otro
-  *estrictamente mayor* se descarta: eso quitó 499 de 1,776 atractores (28%) y
-  dejó 1,300. El Deportivo Hermanos Galeana contaba 59 veces (58 canchas
-  mapeadas aparte) y ahora cuenta una; el Oceanía pasó de 31 a 1. Lo que la
+  *estrictamente mayor* se descarta: eso quitó 470 de 1,688 atractores (28%) y
+  dejó 1,218. El Deportivo Hermanos Galeana trae 56 canchas mapeadas aparte y
+  contaba 57 veces; ahora cuenta una. El Oceanía pasó de 30 a 1. Lo que la
   regla no ve: una cancha cuyo centroide caiga *fuera* del polígono de su
   parque —por un contorno mal digitalizado— sigue contando doble, y un
   contenedor mapeado como nodo suelto no absorbe a nadie, porque un punto no
   contiene nada.
-- La regla se lleva un caso que no es subdivisión: la estación de Metro
-  **Deportivo 18 de Marzo** cae dentro del polígono del deportivo homónimo y
-  deja de contar como atractor. Es la única estación de GAM en esa situación.
-  Su afluencia sigue contando en `flujo_transporte`, así que el hexágono no
-  queda ciego; hacerle una excepción a las estaciones costaba más que el caso.
+- La estación de Metro **Deportivo 18 de Marzo** cae dentro del polígono del
+  deportivo homónimo. Antes de que las estaciones salieran de
+  `atractores_osm`, eso la hacía perder su lugar como atractor por la regla
+  de anidamiento; ahora ya no aplica: las estaciones ni se piden en la
+  consulta de atractores, viven aparte en `presencia_transporte`
+  (`nearest_decay`), así que el caso quedó resuelto sin necesitar una
+  excepción.
 - Los atractores siguen en distancia euclidiana; solo `accesibilidad_peatonal`
   usa la red.
 - La red de OSM no es una sola pieza: son 112 componentes, y la mayor tiene

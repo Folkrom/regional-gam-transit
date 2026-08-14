@@ -16,10 +16,11 @@ hexágonos sin calle a menos de 500 m).
 | variable | fuente | estado |
 |---|---|---|
 | `flujo_transporte` | afluencia del Metro | ✅ |
+| `presencia_transporte` | OSM, cercania a estacion de riel o cable | ✅ |
 | `competencia` | DENUE, SCIAN 722515 filtrado | ✅ |
 | `atractores_denue` | DENUE, sectores 46/72/61/62/71 | ✅ |
 | `accesibilidad_peatonal` | OSM, alcance a 800 m por la red | ✅ |
-| `atractores_osm` | OSM, espacio publico y transporte | ✅ |
+| `atractores_osm` | OSM, solo espacio publico | ✅ |
 | `densidad_pob` | censo AGEB | ✅ |
 | `nivel_socioeconomico` | censo AGEB | ✅ |
 
@@ -117,9 +118,11 @@ antes de sacar conclusiones del mapa.
 - **La regla de anidamiento es geométrica y deja huecos.** Una cancha cuyo
   centroide caiga fuera del polígono de su parque, por un contorno mal
   digitalizado, sigue contando doble; un contenedor mapeado como nodo suelto no
-  absorbe nada. Y se lleva un caso legítimo: la estación **Deportivo 18 de
-  Marzo** cae dentro del deportivo homónimo y deja de contar como atractor
-  (su afluencia sigue en `flujo_transporte`).
+  absorbe nada. Ya no se lleva ningún caso de estación: las estaciones salieron
+  por completo de `atractores_osm` (ni se piden en la consulta), así que la
+  estación **Deportivo 18 de Marzo**, dentro del deportivo homónimo, no
+  depende de esta regla para seguir contando — vive en `presencia_transporte`,
+  aparte.
 - **No hay ground truth.** Esto prioriza dónde mirar, no predice que un negocio
   funcione.
 
