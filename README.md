@@ -64,7 +64,7 @@ del dashboard.
 - `presencia_transporte` dice que **existe** una estación, no cuánta gente la
   usa. Un Cablebús con 5,000 pasajeros al día y uno con 50,000 puntúan igual.
 - El corredor del Cablebús Línea 1 —91 de los 724 hexágonos, los que tienen
-  `presencia_transporte` > 0 y `flujo_transporte` en cero— tenía un rank
+  cerca una estación de clase cable y `flujo_transporte` en cero— tenía un rank
   promedio de 454.6 de 724 antes de esta variable; con ella pasa a 376.0.
   Sube, pero **ninguno de los 91 entra al top 100**: el mejor hexágono del
   corredor queda en el puesto 219. Su `nivel_socioeconomico` medio (0.37)
@@ -118,7 +118,7 @@ del dashboard.
   *estrictamente mayor* se descarta: eso quitó 470 de 1,688 atractores (28%) y
   dejó 1,218. El Deportivo Hermanos Galeana trae 59 atractores mapeados
   aparte —56 canchas, 2 juegos infantiles y un jardín— y contaba 60 veces;
-  ahora cuenta una. El Oceanía pasó de 30 a 1. Lo que la
+  ahora cuenta una. El Oceanía pasó de 31 a 1. Lo que la
   regla no ve: una cancha cuyo centroide caiga *fuera* del polígono de su
   parque —por un contorno mal digitalizado— sigue contando doble, y un
   contenedor mapeado como nodo suelto no absorbe a nadie, porque un punto no
