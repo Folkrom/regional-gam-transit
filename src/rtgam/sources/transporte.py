@@ -22,7 +22,19 @@ OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 OVERPASS_TIMEOUT_S = 180
 OVERPASS_RETRIES = 3
 
-STATION_COLUMNS = ["osm_name", "lat", "lon"]
+STATION_COLUMNS = ["osm_name", "lat", "lon", "osm_class"]
+
+# Etiqueta -> clase de estacion, en orden de precedencia: la primera que
+# cruce gana. cable antes que riel para que un elemento con las dos salga
+# cable siempre, sin depender del orden de las llaves del diccionario.
+STATION_CLASSES = (
+    ("aerialway", "cable"),
+    ("railway", "riel"),
+)
+
+# Orden de especificidad para resolver la clase de un nombre que llega en
+# varios elementos. Mas alto gana.
+CLASS_RANK = {None: 0, "riel": 1, "cable": 2}
 
 
 def normalize_name(name: str) -> str:
@@ -39,12 +51,45 @@ def normalize_name(name: str) -> str:
     return re.sub(r"\s+", " ", no_punctuation).strip()
 
 
+def station_class(tags: dict) -> str | None:
+    """Clase de una estacion segun la estructura de sus etiquetas.
+
+    Devuelve "cable", "riel" o None.
+
+    Se clasifica por etiqueta y no por la cadena de `network` porque el
+    valor de `network` en OSM es texto libre y en GAM aparece escrito de
+    media docena de maneras distintas.
+
+    public_transport=station a solas NO clasifica: en GAM son exactamente
+    los CETRAM, los paraderos de RTP y las terminales de autobus foraneo.
+    Un CETRAM casi siempre esta colocado con la estacion de Metro que le da
+    nombre, asi que contarlo suma presencia donde ya hay. Y un paradero de
+    camion en GAM lo hay en todas partes: contarlos borraria el poder de la
+    variable para distinguir.
+    """
+    for key, clase in STATION_CLASSES:
+        if tags.get(key) == "station":
+            return clase
+    return None
+
+
 def stations_from_overpass(payload: dict) -> pd.DataFrame:
     """Convierte una respuesta de Overpass en un DataFrame de estaciones.
 
     Los elementos sin nombre o sin coordenadas se descartan: no se pueden
     cruzar con la afluencia ni ubicar en el mapa. Se deduplica por nombre
     porque OSM suele tener un nodo y un way para la misma estacion.
+
+    La clase NO sale del elemento que sobrevive al dedup, sale de la mas
+    especifica entre todos los que comparten el nombre. Un mismo nombre
+    llega como un nodo con railway=station y un way con solo
+    public_transport=station, y cual queda primero depende del orden del
+    payload: sacar la clase del sobreviviente dejaria estaciones de Metro
+    sin clasificar segun el humor del servidor.
+
+    Las coordenadas si salen del primero, igual que siempre. Esa es la
+    razon de que flujo_transporte no se mueva ni un decimal por este
+    cambio.
     """
     rows = []
     for element in payload.get("elements", []):
@@ -60,10 +105,21 @@ def stations_from_overpass(payload: dict) -> pd.DataFrame:
         else:
             continue
 
-        rows.append((name, float(lat), float(lon)))
+        rows.append((name, float(lat), float(lon), station_class(tags)))
 
     df = pd.DataFrame(rows, columns=STATION_COLUMNS)
-    return df.drop_duplicates(subset="osm_name", keep="first").reset_index(drop=True)
+    if df.empty:
+        return df
+
+    mejor = (
+        df.assign(_rank=df["osm_class"].map(CLASS_RANK))
+        .sort_values("_rank", ascending=False)
+        .drop_duplicates(subset="osm_name", keep="first")
+        .set_index("osm_name")["osm_class"]
+    )
+    df = df.drop_duplicates(subset="osm_name", keep="first").reset_index(drop=True)
+    df["osm_class"] = df["osm_name"].map(mejor)
+    return df
 
 
 def build_overpass_query(bbox: tuple[float, float, float, float]) -> str:
