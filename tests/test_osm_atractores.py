@@ -2,7 +2,7 @@
 
 import pytest
 
-from rtgam.sources.osm import ATTRACTOR_COLUMNS, attractors_from_overpass
+from rtgam.sources.osm import ATTRACTOR_COLUMNS, attractors_from_overpass, build_attractor_query
 
 
 def cuadro(lat, lon, lado=0.001):
@@ -102,7 +102,10 @@ def test_se_descartan_los_elementos_sin_coordenadas():
     assert len(attractors_from_overpass(payload)) == 1
 
 
-def test_el_tipo_distingue_espacio_publico_de_transporte():
+def test_el_tipo_distingue_espacio_publico_de_estacion_no_reconocida():
+    # railway=station ya no es un tipo reconocido: las estaciones viven en
+    # presencia_transporte, no aqui. El nodo con esa etiqueta simplemente no
+    # entra al frame.
     payload = {
         "elements": [
             nodo(1, {"leisure": "park"}),
@@ -112,7 +115,7 @@ def test_el_tipo_distingue_espacio_publico_de_transporte():
     }
     frame = attractors_from_overpass(payload)
     kinds = set(frame["osm_kind"])
-    assert kinds == {"park", "station", "marketplace"}
+    assert kinds == {"park", "marketplace"}
 
 
 def test_un_elemento_sin_etiqueta_conocida_no_entra():
@@ -126,40 +129,34 @@ def test_un_payload_vacio_da_un_frame_vacio_con_columnas():
     assert list(frame.columns) == ATTRACTOR_COLUMNS
 
 
-def test_las_estaciones_se_deduplican_por_nombre_pero_los_parques_no():
-    # OSM suele traer un nodo Y un way para la misma estacion, a metros de
-    # distancia: Martin Carrera aparece dos veces separada 2.8 m. transporte.py
-    # ya deduplica por eso, y esta fuente usa las mismas tres etiquetas de
-    # transporte.
-    #
-    # Los parques NO se deduplican por nombre: los nombres de parque, jardin y
-    # cancha en GAM son genericos y se repiten entre sitios genuinamente
-    # distintos, asi que deduplicar por nombre borraria atractores reales.
+def test_los_parques_no_se_deduplican_por_nombre():
+    # El dedup por nombre solo existia para estaciones (transporte.py ya lo
+    # hace por su cuenta, porque OSM suele traer un nodo Y un way para la
+    # misma estacion a metros de distancia). Sin estaciones aqui, no queda
+    # ningun dedup por nombre: los nombres de parque, jardin y cancha en GAM
+    # son genericos y se repiten entre sitios genuinamente distintos, asi que
+    # deduplicar por nombre borraria atractores reales.
     #
     # Las coordenadas van lejos entre si a proposito, para que lo que pruebe
     # esto sea el nombre y no el anidamiento geometrico.
     payload = {
         "elements": [
-            nodo(1, {"railway": "station", "name": "Martin Carrera"}, lat=19.50),
-            via(2, {"railway": "station", "name": "Martin Carrera"}, lat=19.60),
-            via(3, {"leisure": "park", "name": "Parque Recreativo"}, lat=19.70),
-            via(4, {"leisure": "park", "name": "Parque Recreativo"}, lat=19.80),
+            via(1, {"leisure": "park", "name": "Parque Recreativo"}, lat=19.70),
+            via(2, {"leisure": "park", "name": "Parque Recreativo"}, lat=19.80),
         ]
     }
     frame = attractors_from_overpass(payload)
-    estaciones = frame[frame["osm_kind"] == "station"]
     parques = frame[frame["osm_kind"] == "park"]
-    assert len(estaciones) == 1, "un nodo y un way de la misma estacion son un atractor"
     assert len(parques) == 2, "los nombres genericos de parque no se deduplican"
 
 
-def test_las_estaciones_sin_nombre_no_se_pierden():
-    # Sin nombre no hay con que deduplicar, y descartarlas perderia paradas
-    # reales. Se dejan todas.
+def test_los_atractores_sin_nombre_no_se_pierden():
+    # Sin dedup por nombre en ningun tipo, un atractor sin `name` no tiene por
+    # que perderse.
     payload = {
         "elements": [
-            nodo(1, {"public_transport": "station"}),
-            via(2, {"public_transport": "station"}, lat=19.6),
+            nodo(1, {"leisure": "park"}),
+            via(2, {"leisure": "park"}, lat=19.6),
         ]
     }
     assert len(attractors_from_overpass(payload)) == 2
@@ -183,10 +180,11 @@ def test_precedencia_de_etiquetas_cuando_un_elemento_tiene_varias():
 
 # --- Anidamiento -----------------------------------------------------------
 #
-# Medido sobre GAM: 499 de 1,776 atractores (28%) caen dentro de otro mayor.
-# El Deportivo Hermanos Galeana trae 58 canchas mapeadas aparte, asi que contaba
-# 59 veces; el Deportivo Oceania, 31. Sin esta regla, un deportivo aplasta la
-# variable de sus hexagonos vecinos por la sola forma en que OSM lo digitalizo.
+# Medido sobre GAM (sin estaciones, que ya no se piden): 470 de 1,688
+# atractores (28%) caen dentro de otro mayor. El Deportivo Hermanos Galeana
+# trae 56 canchas mapeadas aparte, asi que contaba 57 veces; el Deportivo
+# Oceania, 30. Sin esta regla, un deportivo aplasta la variable de sus
+# hexagonos vecinos por la sola forma en que OSM lo digitalizo.
 
 
 def test_una_cancha_dentro_de_un_parque_no_cuenta_aparte():
@@ -297,3 +295,49 @@ def test_un_parque_dentro_de_otro_deja_al_grande():
     }
     frame = attractors_from_overpass(payload)
     assert list(frame["name"]) == ["Grande"]
+
+
+# --- Estaciones fuera de atractores_osm -------------------------------------
+
+
+def test_las_estaciones_ya_no_son_atractores():
+    # Las estaciones viven en presencia_transporte. Contarlas tambien aqui
+    # pondria dos sliders del dashboard moviendo la misma senal.
+    payload = {
+        "elements": [
+            {
+                "type": "node",
+                "tags": {"name": "Potrero", "railway": "station"},
+                "lat": 19.50,
+                "lon": -99.13,
+            },
+            {
+                "type": "node",
+                "tags": {"name": "Cablebus Tlalpexco", "aerialway": "station"},
+                "lat": 19.55,
+                "lon": -99.15,
+            },
+            {
+                "type": "node",
+                "tags": {"name": "CETRAM Indios Verdes", "public_transport": "station"},
+                "lat": 19.49,
+                "lon": -99.12,
+            },
+            {
+                "type": "node",
+                "tags": {"name": "Parque Tepeyac", "leisure": "park"},
+                "lat": 19.48,
+                "lon": -99.11,
+            },
+        ]
+    }
+    out = attractors_from_overpass(payload)
+    assert list(out["osm_kind"]) == ["park"]
+
+
+def test_la_consulta_de_atractores_ya_no_pide_estaciones():
+    query = build_attractor_query((19.4, -99.2, 19.6, -99.0))
+    assert "railway" not in query
+    assert "aerialway" not in query
+    assert "public_transport" not in query
+    assert "leisure" in query

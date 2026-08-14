@@ -59,19 +59,14 @@ def test_la_consulta_de_atractores_pide_geometria_no_solo_el_centro():
     assert "out tags center" not in query
 
 
-def test_la_consulta_de_atractores_pide_los_seis_selectores():
-    # El de aerialway es el que mas facil se cae y el que mas cuesta: el
-    # Cablebus Linea 1 corre entero dentro de GAM, no publica afluencia, y la
-    # presencia de sus estaciones en atractores_osm es lo UNICO que hace
-    # visible a Cuautepec en este proyecto.
+def test_la_consulta_de_atractores_pide_los_tres_selectores():
+    # Las estaciones ya no se piden aqui: viven en presencia_transporte, que
+    # las mide con el maximo del kernel en vez de la suma.
     query = build_attractor_query(BBOX)
     for selector in (
         '"leisure"',
         '"amenity"="marketplace"',
         '"place"="square"',
-        '"railway"="station"',
-        '"aerialway"="station"',
-        '"public_transport"="station"',
     ):
         assert selector in query, f"falta el selector {selector}"
 

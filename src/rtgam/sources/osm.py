@@ -1,8 +1,7 @@
 """Fuente 3: accesibilidad peatonal y atractores de espacio publico desde OSM.
 
 La frontera con DENUE es explicita: DENUE es comercio privado, OSM es lo que el
-registro de negocios no ve. Parques, plazas, deportivos, mercados publicos y
-paradas de transporte.
+registro de negocios no ve. Parques, plazas, deportivos y mercados publicos.
 """
 
 import json
@@ -53,7 +52,7 @@ out geom;
 
 
 def build_attractor_query(bbox: tuple[float, float, float, float]) -> str:
-    """Consulta Overpass para espacio publico y paradas de transporte.
+    """Consulta Overpass para espacio publico.
 
     `nwr` y no `way`: el Bosque de San Juan de Aragon existe SOLO como relation,
     y una consulta de puros `way` lo pierde sin lanzar nada.
@@ -66,10 +65,10 @@ def build_attractor_query(bbox: tuple[float, float, float, float]) -> str:
     plaza, y meterla pondria un atractor enorme sobre los hexagonos con menos
     banqueta de la alcaldia.
 
-    Las tres etiquetas de transporte son las mismas que ya usa transporte.py,
-    para no introducir un universo distinto de paradas. El parseo tambien
-    deduplica las estaciones por nombre, como transporte.py, porque pedir las
-    mismas etiquetas no basta: sin ese paso el universo si sale distinto.
+    Las estaciones tampoco se piden, y esto cambio: antes si. Viven en
+    presencia_transporte, que las mide con el maximo del kernel en vez de la
+    suma. Contarlas aqui tambien ponia dos sliders del dashboard moviendo la
+    misma senal, 84 de 1,300 atractores.
     """
     south, west, north, east = bbox
     box = f"{south},{west},{north},{east}"
@@ -79,9 +78,6 @@ def build_attractor_query(bbox: tuple[float, float, float, float]) -> str:
   nwr["leisure"~"^(park|garden|pitch|playground|sports_centre)$"]({box});
   nwr["amenity"="marketplace"]({box});
   nwr["place"="square"]({box});
-  nwr["railway"="station"]({box});
-  nwr["aerialway"="station"]({box});
-  nwr["public_transport"="station"]({box});
 );
 out geom;
 """
@@ -99,22 +95,20 @@ EXCLUDED_TAGS = {
 }
 
 # Etiqueta -> tipo de atractor. El orden importa: el primero que cruce gana.
+# Las estaciones NO estan aqui: son presencia_transporte, no espacio publico.
 ATTRACTOR_TAGS = (
     ("leisure", {"park", "garden", "pitch", "playground", "sports_centre"}),
     ("amenity", {"marketplace"}),
     ("place", {"square"}),
-    ("railway", {"station"}),
-    ("aerialway", {"station"}),
-    ("public_transport", {"station"}),
 )
 
 
 def attractor_kind(tags: dict) -> str | None:
     """Tipo de atractor de un elemento, o None si no es ninguno.
 
-    Devuelve el valor de la etiqueta, no la etiqueta: un parque es "park" y una
-    estacion es "station", que es lo que sirve para el conteo por tipo que el
-    script imprime.
+    Devuelve el valor de la etiqueta, no la etiqueta: un parque es "park" y un
+    mercado es "marketplace", que es lo que sirve para el conteo por tipo que
+    el script imprime.
     """
     for key, values in EXCLUDED_TAGS.items():
         if tags.get(key) in values:
@@ -186,9 +180,9 @@ def drop_nested(frame: pd.DataFrame, polygons: list) -> pd.DataFrame:
 
     Un deportivo con ocho canchas mapeadas aparte contaba nueve veces, y la
     cancha no es un destino distinto del deportivo que la contiene: es el mismo
-    sitio digitalizado con mas detalle. Medido en GAM: 499 de 1,776 atractores
-    (28%) caen dentro de otro. El Deportivo Hermanos Galeana trae 58 canchas y
-    contaba 59 veces.
+    sitio digitalizado con mas detalle. Medido en GAM (sin estaciones, que ya
+    no se piden): 470 de 1,688 atractores (28%) caen dentro de otro. El
+    Deportivo Hermanos Galeana trae 56 canchas y contaba 57 veces.
 
     El contenedor tiene que ser ESTRICTAMENTE mayor. Dos poligonos del mismo
     tamano que se traslapan son dos sitios distintos mal digitalizados, no uno
@@ -196,7 +190,7 @@ def drop_nested(frame: pd.DataFrame, polygons: list) -> pd.DataFrame:
     orden del payload.
 
     La regla vale para todos los tipos, no solo canchas: 43 jardines dentro de
-    su parque, 23 estaciones dentro de otra estacion, 5 mercados dentro de otro
+    su parque, 6 parques dentro de otro parque, 5 mercados dentro de otro
     mercado. Es la misma subdivision del mismo espacio publico con otro nombre.
     """
     if frame.empty:
@@ -239,17 +233,6 @@ def attractors_from_overpass(payload: dict) -> pd.DataFrame:
     descarta.
 
     Lo que cae dentro de un atractor mayor no cuenta aparte: ver drop_nested.
-
-    Las estaciones se deduplican por nombre, igual que en transporte.py: OSM
-    suele traer un nodo Y un way para la misma estacion, y sin deduplicar
-    Martin Carrera cuenta dos veces por dos objetos separados 2.8 m. La
-    propiedad de no contar dos veces sigue rigiendo DENTRO de cada fuente.
-
-    Solo las estaciones, y solo las que traen nombre. Los demas tipos NO se
-    deduplican a proposito: los nombres de parque, jardin y cancha en GAM son
-    genericos y se repiten entre sitios genuinamente distintos, asi que un
-    dedup global por nombre borraria atractores reales. Una estacion sin
-    nombre no tiene con que deduplicarse y se deja tal cual.
     """
     rows = []
     polygons = []
@@ -272,12 +255,7 @@ def attractors_from_overpass(payload: dict) -> pd.DataFrame:
         polygons.append(polygon)
 
     frame = drop_nested(pd.DataFrame(rows, columns=ATTRACTOR_COLUMNS), polygons)
-    repetida = (
-        (frame["osm_kind"] == "station")
-        & (frame["name"] != "")
-        & frame.duplicated(subset=["osm_kind", "name"], keep="first")
-    )
-    return frame[~repetida].reset_index(drop=True)
+    return frame.reset_index(drop=True)
 
 
 def validate_payload(payload: dict) -> dict:
