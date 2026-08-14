@@ -137,9 +137,10 @@ def test_to_hex_features_produces_single_column():
         {"lat": [19.50, 19.70], "lon": [-99.10, -99.10]},
         index=pd.Index(["a", "b"], name="hex_id"),
     )
-    stations = pd.DataFrame({"lat": [19.50], "lon": [-99.10], "afluencia_habil": [1000.0]})
-    out = to_hex_features(hexes, stations)
-    assert list(out.columns) == ["flujo_transporte"]
+    con_afluencia = pd.DataFrame({"lat": [19.50], "lon": [-99.10], "afluencia_habil": [1000.0]})
+    estaciones = pd.DataFrame({"lat": [19.50], "lon": [-99.10], "osm_class": ["cable"]})
+    out = to_hex_features(hexes, con_afluencia, estaciones)
+    assert list(out.columns) == ["flujo_transporte", "presencia_transporte"]
     assert out.index.tolist() == ["a", "b"]
     assert out.loc["a", "flujo_transporte"] == pytest.approx(1000.0, rel=1e-6)
     assert out.loc["b", "flujo_transporte"] == 0.0
@@ -147,6 +148,79 @@ def test_to_hex_features_produces_single_column():
 
 def test_to_hex_features_with_no_stations_returns_zeros():
     hexes = pd.DataFrame({"lat": [19.50], "lon": [-99.10]}, index=pd.Index(["a"], name="hex_id"))
-    stations = pd.DataFrame({"lat": [], "lon": [], "afluencia_habil": []})
-    out = to_hex_features(hexes, stations)
+    con_afluencia = pd.DataFrame({"lat": [], "lon": [], "afluencia_habil": []})
+    estaciones = pd.DataFrame({"lat": [19.50], "lon": [-99.10], "osm_class": ["cable"]})
+    out = to_hex_features(hexes, con_afluencia, estaciones)
     assert out.loc["a", "flujo_transporte"] == 0.0
+
+
+def test_la_presencia_no_depende_de_la_afluencia():
+    # Este es el test que ancla el arreglo entero. Una estacion de cable que
+    # no cruza con ningun nombre del CSV del Metro —el Cablebus, exactamente—
+    # tiene que producir presencia mayor que cero. Sin este test, la
+    # regresion que deshace el arreglo pasa desapercibida.
+    hexes = pd.DataFrame(
+        {"lat": [19.5], "lon": [-99.1]}, index=pd.Index(["a"], name="hex_id")
+    )
+    con_afluencia = pd.DataFrame(columns=["lat", "lon", "afluencia_habil"])
+    estaciones = pd.DataFrame(
+        {"lat": [19.5], "lon": [-99.1], "osm_class": ["cable"]}
+    )
+    out = to_hex_features(hexes, con_afluencia, estaciones)
+    assert out.loc["a", "flujo_transporte"] == 0.0
+    assert out.loc["a", "presencia_transporte"] == pytest.approx(1.0)
+
+
+def test_las_estaciones_sin_clase_no_dan_presencia():
+    hexes = pd.DataFrame(
+        {"lat": [19.5], "lon": [-99.1]}, index=pd.Index(["a"], name="hex_id")
+    )
+    con_afluencia = pd.DataFrame(columns=["lat", "lon", "afluencia_habil"])
+    estaciones = pd.DataFrame(
+        {
+            "lat": [19.5, 19.5],
+            "lon": [-99.1, -99.1],
+            "osm_class": ["cable", None],
+        }
+    )
+    # El CETRAM colocado encima no agrega nada: el maximo ya es 1.0.
+    out = to_hex_features(hexes, con_afluencia, estaciones)
+    assert out.loc["a", "presencia_transporte"] == pytest.approx(1.0)
+
+
+def test_sin_estaciones_de_riel_ni_cable_lanza():
+    hexes = pd.DataFrame(
+        {"lat": [19.5], "lon": [-99.1]}, index=pd.Index(["a"], name="hex_id")
+    )
+    con_afluencia = pd.DataFrame(columns=["lat", "lon", "afluencia_habil"])
+    estaciones = pd.DataFrame({"lat": [19.5], "lon": [-99.1], "osm_class": [None]})
+    with pytest.raises(ValueError, match="riel ni cable"):
+        to_hex_features(hexes, con_afluencia, estaciones)
+
+
+def test_sin_estaciones_de_cable_lanza():
+    hexes = pd.DataFrame(
+        {"lat": [19.5], "lon": [-99.1]}, index=pd.Index(["a"], name="hex_id")
+    )
+    con_afluencia = pd.DataFrame(columns=["lat", "lon", "afluencia_habil"])
+    estaciones = pd.DataFrame({"lat": [19.5], "lon": [-99.1], "osm_class": ["riel"]})
+    with pytest.raises(ValueError, match="cable"):
+        to_hex_features(hexes, con_afluencia, estaciones)
+
+
+def test_el_flujo_no_cambia_al_agregar_la_presencia():
+    # El mismo fixture de siempre: la columna de volumen tiene que dar el
+    # mismo numero que daba antes de esta tarea.
+    hexes = pd.DataFrame(
+        {"lat": [19.5, 19.6], "lon": [-99.1, -99.2]},
+        index=pd.Index(["a", "b"], name="hex_id"),
+    )
+    con_afluencia = pd.DataFrame(
+        {"lat": [19.5], "lon": [-99.1], "afluencia_habil": [1000.0]}
+    )
+    estaciones = pd.DataFrame(
+        {"lat": [19.5, 19.5], "lon": [-99.1, -99.1], "osm_class": ["riel", "cable"]}
+    )
+    out = to_hex_features(hexes, con_afluencia, estaciones)
+    assert out.loc["a", "flujo_transporte"] == pytest.approx(1000.0, rel=1e-6)
+    assert out.loc["b", "flujo_transporte"] == 0.0

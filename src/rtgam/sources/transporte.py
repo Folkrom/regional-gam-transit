@@ -16,7 +16,7 @@ import pandas as pd
 import requests
 
 from rtgam import USER_AGENT
-from rtgam.geo import accumulate_decay
+from rtgam.geo import accumulate_decay, nearest_decay
 
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 OVERPASS_TIMEOUT_S = 180
@@ -311,13 +311,59 @@ def propose_name_map(
     )
 
 
-def to_hex_features(gam_hexes: pd.DataFrame, stations: pd.DataFrame) -> pd.DataFrame:
-    """Reparte la afluencia de las estaciones sobre los hexagonos.
+# Las clases que cuentan como presencia de transporte.
+CLASES_CON_PRESENCIA = ("riel", "cable")
 
-    gam_hexes: indexado por hex_id, columnas lat y lon.
-    stations:  columnas lat, lon y afluencia_habil.
-    Devuelve:  DataFrame indexado por hex_id con la unica columna que esta
-               fuente posee, flujo_transporte, en valor crudo y sin normalizar.
+
+def to_hex_features(
+    gam_hexes: pd.DataFrame,
+    con_afluencia: pd.DataFrame,
+    estaciones: pd.DataFrame,
+) -> pd.DataFrame:
+    """Emite las dos columnas que esta fuente posee.
+
+    gam_hexes:     indexado por hex_id, columnas lat y lon.
+    con_afluencia: el cruce con el CSV del Metro. Columnas lat, lon y
+                   afluencia_habil.
+    estaciones:    la salida cruda de fetch_stations. Columnas lat, lon y
+                   osm_class.
+    Devuelve:      DataFrame indexado por hex_id con flujo_transporte y
+                   presencia_transporte, en valores CRUDOS y sin normalizar.
+
+    Son dos frames y no uno a proposito. `con_afluencia` es un merge
+    interno: solo trae las estaciones que cruzaron con el CSV, que son las
+    del Metro. Medir la presencia sobre ese frame la dejaria con el mismo
+    punto ciego que esta variable existe para arreglar, porque el Cablebus
+    no cruza con nada.
+
+    `estaciones` cubre el bbox completo, GAM mas 1 km. Una estacion justo
+    afuera del limite alimenta hexagonos de GAM de verdad, y filtrarla
+    dejaria el borde falsamente muerto.
     """
-    flow = accumulate_decay(gam_hexes, stations, value_col="afluencia_habil")
-    return pd.DataFrame({"flujo_transporte": flow})
+    presentes = estaciones[estaciones["osm_class"].isin(CLASES_CON_PRESENCIA)]
+
+    # Una guarda, no una comodidad. Si OSM cambia el esquema de etiquetas,
+    # la variable saldria toda en cero y el score la reportaria como
+    # presente y funcionando: el numero equivocado que no lanza nada.
+    if presentes.empty:
+        raise ValueError(
+            "Ninguna estacion clasifico como riel ni cable. O el payload de "
+            "OSM viene vacio, o cambiaron las etiquetas. presencia_transporte "
+            "saldria toda en cero sin que nada avisara."
+        )
+
+    if not (presentes["osm_class"] == "cable").any():
+        raise ValueError(
+            "No hay ninguna estacion de cable. El Cablebus Linea 1 corre "
+            "entero dentro de GAM y es el motivo de esta variable: perderlo "
+            "deja el punto ciego donde estaba, con apariencia de arreglado."
+        )
+
+    return pd.DataFrame(
+        {
+            "flujo_transporte": accumulate_decay(
+                gam_hexes, con_afluencia, value_col="afluencia_habil"
+            ),
+            "presencia_transporte": nearest_decay(gam_hexes, presentes),
+        }
+    )
