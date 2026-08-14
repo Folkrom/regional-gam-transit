@@ -138,6 +138,30 @@ def test_la_clase_sale_de_todos_los_elementos_del_mismo_nombre():
     assert out.loc[0, "lat"] == pytest.approx(19.50)
 
 
+def test_la_clase_cable_gana_a_riel_del_mismo_nombre():
+    # El elemento de railway (riel) va PRIMERO y sobrevive al dedup. Si la
+    # precedencia estuviera invertida, o si la clase saliera del elemento
+    # que sobrevive en vez de la mas especifica entre todos, esta estacion
+    # de Cablebus quedaria marcada como riel sin que nada fallara.
+    payload = {
+        "elements": [
+            {
+                "tags": {"name": "Tlacamaca", "railway": "station"},
+                "lat": 19.55,
+                "lon": -99.15,
+            },
+            {
+                "tags": {"name": "Tlacamaca", "aerialway": "station"},
+                "lat": 19.56,
+                "lon": -99.16,
+            },
+        ]
+    }
+    out = stations_from_overpass(payload)
+    assert len(out) == 1
+    assert out.loc[0, "osm_class"] == "cable"
+
+
 def test_una_estacion_sin_clase_queda_con_osm_class_nulo():
     payload = {
         "elements": [
