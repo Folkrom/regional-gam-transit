@@ -224,3 +224,24 @@ def test_el_flujo_no_cambia_al_agregar_la_presencia():
     out = to_hex_features(hexes, con_afluencia, estaciones)
     assert out.loc["a", "flujo_transporte"] == pytest.approx(1000.0, rel=1e-6)
     assert out.loc["b", "flujo_transporte"] == 0.0
+
+
+def test_la_presencia_de_riel_sola_es_mayor_que_cero():
+    # El unico fixture que mezclaba riel y cable los ponia en la misma
+    # coordenada: el maximo de nearest_decay no distinguia si el riel de
+    # verdad contribuia o si el cable tapaba todo. Aqui el cable esta a
+    # ~5.5 km, fuera del corte de 800 m, asi que satisface la guarda 2 sin
+    # aportar nada al maximo: lo que se mide es el riel solo.
+    hexes = pd.DataFrame(
+        {"lat": [19.5], "lon": [-99.1]}, index=pd.Index(["a"], name="hex_id")
+    )
+    con_afluencia = pd.DataFrame(columns=["lat", "lon", "afluencia_habil"])
+    estaciones = pd.DataFrame(
+        {
+            "lat": [19.5, 19.55],
+            "lon": [-99.1, -99.1],
+            "osm_class": ["riel", "cable"],
+        }
+    )
+    out = to_hex_features(hexes, con_afluencia, estaciones)
+    assert out.loc["a", "presencia_transporte"] == pytest.approx(1.0)
