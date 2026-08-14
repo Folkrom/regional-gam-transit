@@ -204,3 +204,22 @@ def test_nearest_decay_en_el_punto_exacto_vale_uno():
     )
     encima = pd.DataFrame({"lat": [19.5], "lon": [-99.1]})
     assert nearest_decay(centroids, encima)["a"] == pytest.approx(1.0)
+
+
+def test_nearest_decay_incluye_la_frontera_exacta_del_corte():
+    # La aproximacion 800/111_000 grados NO cae en 800.0 m exactos: seria un
+    # test que pasa por casualidad con cualquiera de las dos comparaciones
+    # (<= o <). En vez de eso, se fija un punto arbitrario y se pasa como
+    # `cutoff` la distancia REAL que haversine_m calcula para ese punto —
+    # mismo calculo, deterministico, asi que dentro de nearest_decay
+    # `distances` sale exactamente igual a `cutoff`. Esto obliga a la
+    # comparacion `<=`: si mutara a `<`, el punto quedaria excluido y el
+    # resultado seria 0.0 en vez de exp(-cutoff/tau).
+    centroids = pd.DataFrame(
+        {"lat": [19.5], "lon": [-99.1]}, index=pd.Index(["a"], name="hex_id")
+    )
+    punto = pd.DataFrame({"lat": [19.5 + 800 / 111_000], "lon": [-99.1]})
+    cutoff_exacto = haversine_m(19.5, -99.1, punto["lat"][0], punto["lon"][0])
+    out = nearest_decay(centroids, punto, cutoff=cutoff_exacto)
+    assert out["a"] == pytest.approx(np.exp(-cutoff_exacto / 300.0))
+    assert out["a"] > 0.0
