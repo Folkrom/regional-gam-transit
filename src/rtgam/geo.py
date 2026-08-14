@@ -96,3 +96,38 @@ def accumulate_decay(
     weights = np.where(distances <= cutoff, np.exp(-distances / tau), 0.0)
     totals = weights @ points[value_col].to_numpy(dtype=float)
     return pd.Series(totals, index=centroids.index)
+
+
+def nearest_decay(
+    centroids: pd.DataFrame,
+    points: pd.DataFrame,
+    tau: float = DECAY_TAU_M,
+    cutoff: float = DECAY_CUTOFF_M,
+) -> pd.Series:
+    """Decaimiento exp(-d/tau) del punto MAS CERCANO, no la suma de todos.
+
+    Los puntos mas alla de `cutoff` metros dan exactamente cero.
+
+    centroids: indexado por hex_id, columnas lat y lon.
+    points:    columnas lat y lon. No lleva columna de valor: esto mide
+               presencia, y la presencia no pondera.
+    Devuelve:  Series de floats en [0, 1] alineada con el indice de
+               `centroids`.
+
+    Es la hermana de accumulate_decay, no un modo suyo. La suma cuenta
+    puntos, y OSM parte una estacion en tantos nodos como quiera el
+    mapeador: La Raza son tres nodos en el mismo anden. Con el maximo, tres
+    nodos colocados dan lo mismo que uno, sin dedup y sin umbral que
+    justificar. La inmunidad al conteo doble es estructural.
+    """
+    if len(points) == 0:
+        return pd.Series(0.0, index=centroids.index)
+
+    distances = haversine_m(
+        centroids["lat"].to_numpy()[:, None],
+        centroids["lon"].to_numpy()[:, None],
+        points["lat"].to_numpy()[None, :],
+        points["lon"].to_numpy()[None, :],
+    )
+    weights = np.where(distances <= cutoff, np.exp(-distances / tau), 0.0)
+    return pd.Series(weights.max(axis=1), index=centroids.index)
