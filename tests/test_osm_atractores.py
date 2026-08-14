@@ -178,6 +178,16 @@ def test_precedencia_de_etiquetas_cuando_un_elemento_tiene_varias():
     assert frame.iloc[0]["osm_kind"] == "marketplace"
 
 
+def test_una_plaza_sola_es_un_atractor():
+    # Ningun otro test aisla place=square: siempre aparecia compitiendo con
+    # marketplace o anidada dentro de un parque. Sin este, el tipo entero
+    # podria desaparecer de ATTRACTOR_TAGS sin que nada lo note.
+    payload = {"elements": [nodo(1, {"place": "square", "name": "Plaza Hidalgo"})]}
+    frame = attractors_from_overpass(payload)
+    assert len(frame) == 1
+    assert frame.iloc[0]["osm_kind"] == "square"
+
+
 # --- Anidamiento -----------------------------------------------------------
 #
 # Medido sobre GAM (sin estaciones, que ya no se piden): 470 de 1,688
@@ -196,6 +206,23 @@ def test_una_cancha_dentro_de_un_parque_no_cuenta_aparte():
     }
     frame = attractors_from_overpass(payload)
     assert list(frame["osm_kind"]) == ["park"]
+
+
+def test_el_indice_queda_contiguo_tras_descartar_un_anidado():
+    # drop_nested devuelve un frame filtrado, con huecos en el indice de
+    # pandas. La cancha va PRIMERO en el payload a proposito: si se descarta
+    # sin reindexar, lo que sobrevive queda en la posicion 1, no en la 0, y
+    # un consumidor que espere un indice 0..n-1 (como to_hex_features al
+    # alinear Series) se desalinea en silencio.
+    payload = {
+        "elements": [
+            via(1, {"leisure": "pitch"}, lat=19.5005, lado=0.0004),
+            via(2, {"leisure": "park", "name": "Deportivo"}, lado=0.004),
+        ]
+    }
+    frame = attractors_from_overpass(payload)
+    assert list(frame["osm_kind"]) == ["park"]
+    assert list(frame.index) == list(range(len(frame)))
 
 
 def test_un_deportivo_con_ocho_canchas_cuenta_una_vez():
