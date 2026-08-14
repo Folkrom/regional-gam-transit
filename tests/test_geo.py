@@ -10,6 +10,7 @@ from rtgam.geo import (
     haversine_m,
     hex_centroids,
     hexes_for_polygon,
+    nearest_decay,
 )
 
 
@@ -148,3 +149,77 @@ def test_output_aligned_with_centroid_index():
 def test_cutoff_constant_is_800():
     assert DECAY_CUTOFF_M == 800.0
     assert DECAY_TAU_M == 300.0
+
+
+def test_nearest_decay_toma_el_maximo_no_la_suma():
+    # Tres puntos colocados a 300 m contra uno solo a 300 m: el maximo es
+    # identico, la suma seria el triple. Las distancias estan elegidas para
+    # que suma y maximo NO coincidan por casualidad.
+    centroids = pd.DataFrame(
+        {"lat": [19.5], "lon": [-99.1]}, index=pd.Index(["a"], name="hex_id")
+    )
+    uno = pd.DataFrame({"lat": [19.5 + 300 / 111_000], "lon": [-99.1]})
+    tres = pd.DataFrame(
+        {"lat": [19.5 + 300 / 111_000] * 3, "lon": [-99.1] * 3}
+    )
+    assert nearest_decay(centroids, uno)["a"] == pytest.approx(
+        nearest_decay(centroids, tres)["a"]
+    )
+
+
+def test_nearest_decay_es_el_mas_cercano_no_el_ultimo():
+    # El punto lejano va PRIMERO en el frame: si la implementacion se quedara
+    # con el ultimo en vez de con el maximo, este test lo cacha.
+    centroids = pd.DataFrame(
+        {"lat": [19.5], "lon": [-99.1]}, index=pd.Index(["a"], name="hex_id")
+    )
+    points = pd.DataFrame(
+        {"lat": [19.5 + 700 / 111_000, 19.5 + 100 / 111_000], "lon": [-99.1, -99.1]}
+    )
+    esperado = np.exp(-100.0 / 300.0)
+    assert nearest_decay(centroids, points)["a"] == pytest.approx(esperado, rel=1e-3)
+
+
+def test_nearest_decay_corta_a_800_metros():
+    centroids = pd.DataFrame(
+        {"lat": [19.5], "lon": [-99.1]}, index=pd.Index(["a"], name="hex_id")
+    )
+    lejos = pd.DataFrame({"lat": [19.5 + 900 / 111_000], "lon": [-99.1]})
+    assert nearest_decay(centroids, lejos)["a"] == 0.0
+
+
+def test_nearest_decay_sin_puntos_da_ceros_alineados():
+    centroids = pd.DataFrame(
+        {"lat": [19.5, 19.6], "lon": [-99.1, -99.2]},
+        index=pd.Index(["a", "b"], name="hex_id"),
+    )
+    out = nearest_decay(centroids, pd.DataFrame(columns=["lat", "lon"]))
+    assert list(out.index) == ["a", "b"]
+    assert (out == 0.0).all()
+
+
+def test_nearest_decay_en_el_punto_exacto_vale_uno():
+    centroids = pd.DataFrame(
+        {"lat": [19.5], "lon": [-99.1]}, index=pd.Index(["a"], name="hex_id")
+    )
+    encima = pd.DataFrame({"lat": [19.5], "lon": [-99.1]})
+    assert nearest_decay(centroids, encima)["a"] == pytest.approx(1.0)
+
+
+def test_nearest_decay_incluye_la_frontera_exacta_del_corte():
+    # La aproximacion 800/111_000 grados NO cae en 800.0 m exactos: seria un
+    # test que pasa por casualidad con cualquiera de las dos comparaciones
+    # (<= o <). En vez de eso, se fija un punto arbitrario y se pasa como
+    # `cutoff` la distancia REAL que haversine_m calcula para ese punto —
+    # mismo calculo, deterministico, asi que dentro de nearest_decay
+    # `distances` sale exactamente igual a `cutoff`. Esto obliga a la
+    # comparacion `<=`: si mutara a `<`, el punto quedaria excluido y el
+    # resultado seria 0.0 en vez de exp(-cutoff/tau).
+    centroids = pd.DataFrame(
+        {"lat": [19.5], "lon": [-99.1]}, index=pd.Index(["a"], name="hex_id")
+    )
+    punto = pd.DataFrame({"lat": [19.5 + 800 / 111_000], "lon": [-99.1]})
+    cutoff_exacto = haversine_m(19.5, -99.1, punto["lat"][0], punto["lon"][0])
+    out = nearest_decay(centroids, punto, cutoff=cutoff_exacto)
+    assert out["a"] == pytest.approx(np.exp(-cutoff_exacto / 300.0))
+    assert out["a"] > 0.0

@@ -52,7 +52,8 @@ def test_weight_of_zero_removes_influence(features):
 
 def test_load_weights_reads_config_file():
     weights = load_weights()
-    assert weights["flujo_transporte"] == 0.35
+    assert weights["flujo_transporte"] == 0.25
+    assert weights["presencia_transporte"] == 0.10
     assert weights["competencia"] == -0.10
     assert weights["competencia"] < 0, "la competencia debe restar"
 
@@ -61,6 +62,7 @@ def test_load_weights_covers_every_spec_variable():
     weights = load_weights()
     expected = {
         "flujo_transporte",
+        "presencia_transporte",
         "densidad_pob",
         "nivel_socioeconomico",
         "accesibilidad_peatonal",

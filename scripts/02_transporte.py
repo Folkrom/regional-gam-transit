@@ -1,7 +1,7 @@
-"""Fuente 1: convierte la afluencia de transporte en la columna flujo_transporte.
+"""Fuente 1: afluencia y presencia de transporte sobre los hexagonos.
 
 Entrada:  data/raw/afluencia_*.csv, data/processed/gam_hexes.parquet
-Salida:   data/processed/flujo_transporte.parquet
+Salida:   data/processed/transporte.parquet
 Auxiliar: data/interim/station_name_map.csv (revisable a mano)
 
 Uso:
@@ -26,7 +26,8 @@ ROOT = Path(__file__).resolve().parents[1]
 HEXES = ROOT / "data" / "processed" / "gam_hexes.parquet"
 STATIONS_CACHE = ROOT / "data" / "raw" / "osm_stations.json"
 NAME_MAP = ROOT / "data" / "interim" / "station_name_map.csv"
-OUTPUT = ROOT / "data" / "processed" / "flujo_transporte.parquet"
+OUTPUT = ROOT / "data" / "processed" / "transporte.parquet"
+OUTPUT_VIEJO = ROOT / "data" / "processed" / "flujo_transporte.parquet"
 
 # Nombres verificados contra el CSV real del portal de la CDMX.
 DATE_COL = "fecha"
@@ -38,11 +39,14 @@ VALUE_COL = "afluencia"
 # Tren Ligero y Trolebus publican unicamente totales por linea, asi que no
 # se pueden repartir sobre hexagonos sin inventar el reparto.
 #
-# Consecuencia concreta: el Cablebus Linea 1 corre entero dentro de GAM y
-# sirve a Cuautepec, y aqui aporta cero. El corredor de Cuautepec va a
-# aparecer con menos flujo del que realmente tiene, y cualquier conclusion
-# de ubicacion en esa zona no es confiable mientras no exista una fuente
-# por estacion.
+# Por eso esta fuente emite dos columnas y no una: flujo_transporte mide
+# volumen y solo existe para el Metro, y presencia_transporte mide cercania
+# a una estacion de riel o cable, que si existe para todos. El corredor del
+# Cablebus Linea 1 tenia flujo exactamente cero en sus 91 hexagonos (los que
+# tienen presencia de una estacion clase cable y flujo_transporte en cero).
+#
+# Lo que sigue sin haber es cuanta gente usa el Cablebus: la presencia dice
+# que la estacion esta ahi, no que este llena.
 
 # Buffer de 1 km alrededor de GAM: una estacion justo afuera del limite
 # alimenta hexagonos de GAM de verdad, y filtrarla dejaria el borde
@@ -114,15 +118,32 @@ def main() -> None:
     if pendientes > 0:
         print(f"Pendientes de revision humana en {NAME_MAP}: {pendientes}")
 
-    features = to_hex_features(hexes, merged)
+    features = to_hex_features(hexes, merged, osm_stations)
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     features.to_parquet(OUTPUT)
 
+    # El parquet cambio de nombre. Si el viejo sobrevive, 99_score.py NO lo
+    # carga (ya no esta en SOURCE_FILES), pero queda un archivo obsoleto
+    # pareciendo dato vigente. Se borra.
+    if OUTPUT_VIEJO.exists():
+        OUTPUT_VIEJO.unlink()
+        print(f"Borrado el parquet viejo: {OUTPUT_VIEJO}")
+
     flow = features["flujo_transporte"]
+    pres = features["presencia_transporte"]
     print()
     print(f"Hexagonos: {len(flow)}  con flujo > 0: {(flow > 0).sum()}")
-    print(f"min {flow.min():.1f}  media {flow.mean():.1f}  max {flow.max():.1f}")
-    print("Top 5 hexagonos:")
+    print(f"flujo      min {flow.min():.1f}  media {flow.mean():.1f}  max {flow.max():.1f}")
+    print(f"Hexagonos con presencia > 0: {(pres > 0).sum()}")
+    print(f"presencia  min {pres.min():.4f}  media {pres.mean():.4f}  max {pres.max():.4f}")
+
+    por_clase = osm_stations["osm_class"].value_counts(dropna=False)
+    print(f"Estaciones por clase: {por_clase.to_dict()}")
+
+    solo_presencia = int(((pres > 0) & (flow == 0)).sum())
+    print(f"Hexagonos que solo la presencia ve (flujo cero): {solo_presencia}")
+
+    print("Top 5 por flujo:")
     print(flow.nlargest(5).to_string())
     print(f"Escrito: {OUTPUT}")
 

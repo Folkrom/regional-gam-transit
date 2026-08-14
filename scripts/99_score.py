@@ -4,7 +4,7 @@ Entrada: data/processed/gam_hexes.parquet + cualquier <fuente>.parquet presente
 Salida:  data/processed/hex_features.parquet (crudo)
          data/processed/hex_scores.parquet (normalizado + score)
 
-Corre con las fuentes que existan. Con solo flujo_transporte ya produce un
+Corre con las fuentes que existan. Con solo transporte.parquet ya produce un
 mapa valido.
 
 Uso:
@@ -25,7 +25,7 @@ SCORES_OUT = PROCESSED / "hex_scores.parquet"
 
 # Una entrada por fuente. Agregar una fuente nueva es agregar una linea aqui.
 SOURCE_FILES = [
-    "flujo_transporte.parquet",
+    "transporte.parquet",
     "denue.parquet",
     "osm.parquet",
     "censo.parquet",
