@@ -280,3 +280,65 @@ def test_fetch_stations_does_not_retry_a_client_error(tmp_path, monkeypatch):
     with pytest.raises(requests.HTTPError):
         fetch_stations(BBOX, cache)
     assert len(calls) == 1, "un 400 no se reintenta"
+
+
+def test_un_remark_de_overpass_no_se_cachea_ni_se_devuelve(tmp_path, monkeypatch):
+    """Overpass saturado responde 200 con `elements` vacio y el error en `remark`.
+
+    Pasa cualquier raise_for_status y cualquier json(), asi que sin mirarlo a
+    mano se cacharia un payload inservible y todas las corridas siguientes lo
+    releerian. Es el mismo fallo que ya se corrigio en osm.py.
+    """
+    cache = tmp_path / "osm_stations.json"
+
+    class Saturado:
+        status_code = 200
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"version": 0.6, "elements": [], "remark": "runtime error: Query timed out"}
+
+    monkeypatch.setattr(requests, "post", lambda *a, **k: Saturado())
+    monkeypatch.setattr(time, "sleep", lambda seconds: None)
+
+    with pytest.raises(RuntimeError, match="3 intentos"):
+        fetch_stations(BBOX, cache)
+    assert not cache.exists(), "un payload con remark no puede quedar cacheado"
+
+
+def test_una_respuesta_sin_elements_no_se_cachea(tmp_path, monkeypatch):
+    """Un cuerpo que no trae `elements` no es una respuesta util de Overpass."""
+    cache = tmp_path / "osm_stations.json"
+
+    class SinElements:
+        status_code = 200
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"version": 0.6}
+
+    monkeypatch.setattr(requests, "post", lambda *a, **k: SinElements())
+    monkeypatch.setattr(time, "sleep", lambda seconds: None)
+
+    with pytest.raises(RuntimeError, match="3 intentos"):
+        fetch_stations(BBOX, cache)
+    assert not cache.exists()
+
+
+def test_una_cache_con_remark_tampoco_se_acepta(tmp_path):
+    """El payload malo pudo quedar en disco de una version anterior del codigo.
+
+    Validar solo al descargar dejaria esa cache envenenada sirviendo cero
+    estaciones para siempre.
+    """
+    cache = tmp_path / "osm_stations.json"
+    cache.write_text(
+        json.dumps({"elements": [], "remark": "runtime error: Query timed out"}),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="remark"):
+        fetch_stations(BBOX, cache)
