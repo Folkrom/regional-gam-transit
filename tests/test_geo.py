@@ -101,6 +101,26 @@ def test_beyond_cutoff_is_exactly_zero():
     assert out["h1"] == 0.0
 
 
+def test_accumulate_decay_incluye_la_frontera_exacta_del_corte():
+    # Hermano del mismo test de nearest_decay. Ningun otro test pone un punto
+    # a exactamente `cutoff`, asi que mutar `<=` por `<` sobrevivia con la
+    # suite entera en verde, y afecta a las cuatro variables que suman:
+    # flujo_transporte, competencia, atractores_denue y atractores_osm.
+    #
+    # La aproximacion 800/111_000 grados NO cae en 800.0 m exactos, asi que
+    # se pasa como `cutoff` la distancia REAL que haversine_m calcula para el
+    # punto: mismo calculo, deterministico, y dentro de accumulate_decay
+    # `distances` sale exactamente igual a `cutoff`.
+    centroids = _centroid_at(19.5, -99.1)
+    punto = pd.DataFrame(
+        {"lat": [19.5 + 800 / 111_000], "lon": [-99.1], "afluencia": [1000.0]}
+    )
+    cutoff_exacto = haversine_m(19.5, -99.1, punto["lat"][0], punto["lon"][0])
+    out = accumulate_decay(centroids, punto, "afluencia", cutoff=cutoff_exacto)
+    assert out["h1"] == pytest.approx(1000.0 * np.exp(-cutoff_exacto / DECAY_TAU_M))
+    assert out["h1"] > 0.0
+
+
 def test_accumulates_multiple_points():
     """Dos estaciones identicas y coincidentes suman el doble."""
     centroids = _centroid_at(19.5, -99.1)
