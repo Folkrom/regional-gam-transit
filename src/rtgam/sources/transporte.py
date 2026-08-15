@@ -17,6 +17,7 @@ import requests
 
 from rtgam import USER_AGENT
 from rtgam.geo import accumulate_decay, nearest_decay
+from rtgam.overpass import validate_payload
 
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 OVERPASS_TIMEOUT_S = 180
@@ -151,8 +152,13 @@ def fetch_stations(
 
     Overpass es un servidor gratuito y devuelve 429 bajo carga, por eso el
     backoff exponencial.
-    Igual que en boundary.py, la cache se escribe DESPUES de parsear, nunca
-    antes: un payload inservible persistido se releeria en cada corrida.
+    Igual que en boundary.py, la cache se escribe DESPUES de validar y parsear,
+    nunca antes: un payload inservible persistido se releeria en cada corrida.
+
+    La cache tambien se valida al leerla, no solo al descargarla. Un payload
+    con remark pudo quedar en disco de una version anterior de este codigo, y
+    validar solo en la descarga lo dejaria sirviendo cero estaciones para
+    siempre sin que nada avisara.
     """
     if cache_path.exists() and not force:
         try:
@@ -162,7 +168,7 @@ def fetch_stations(
                 f"La cache {cache_path} esta corrupta o truncada. "
                 f"Borrala o corre con --force para volver a descargar. ({error})"
             ) from error
-        return stations_from_overpass(payload)
+        return stations_from_overpass(validate_payload(payload))
 
     query = build_overpass_query(bbox)
     last_error: Exception | None = None
@@ -175,7 +181,7 @@ def fetch_stations(
                 timeout=OVERPASS_TIMEOUT_S,
             )
             response.raise_for_status()
-            payload = response.json()
+            payload = validate_payload(response.json())
             stations = stations_from_overpass(payload)
             cache_path.parent.mkdir(parents=True, exist_ok=True)
             cache_path.write_text(json.dumps(payload), encoding="utf-8")

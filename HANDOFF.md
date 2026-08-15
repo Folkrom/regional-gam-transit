@@ -93,13 +93,12 @@ es alcance, metros de calle recorribles desde el centroide del hexágono.)
 Queda una deuda anotada y sin hacer, del tipo caro de este repo — el número
 equivocado que no lanza nada:
 
-- **`transporte.py::fetch_stations` cachea `response.json()` crudo y nunca
-  revisa `remark`**, el campo con el que Overpass avisa de resultados parciales
-  o truncados. `osm.py` ya tiene `validate_payload` haciendo exactamente esa
-  comprobación, y valida ANTES de escribir la caché; `transporte.py` no. Un
-  payload truncado quedaría persistido y envenenaría todas las corridas
-  siguientes. Es el arreglo más barato que queda: la función a copiar ya
-  existe.
+- **`accumulate_decay` no tiene cubierta la frontera exacta del corte.** Ningún
+  test pone un punto a exactamente `DECAY_CUTOFF_M`, así que mutar `<=` por `<`
+  sobrevive con la suite entera en verde. Se detectó al arreglar el mismo hueco
+  en `nearest_decay`, y se dejó fuera de aquella rama a propósito: es
+  preexistente y afecta a cuatro variables, no solo a la que se estaba
+  agregando. Merece su propia rama.
 
 ## Dónde los números NO son confiables
 
@@ -213,8 +212,11 @@ un tercer paso ya con las dos cachés en disco.
 - Cada fuente es dueña exclusiva de sus columnas. Agregar una es un módulo nuevo
   en `src/rtgam/sources/`, un script numerado y una línea en `SOURCE_FILES`. Se
   verificó con DENUE: entró sin tocar una sola línea de código existente.
-- Validar **antes** de escribir caché, nunca al revés. Se corrigió tres veces por
-  no hacerlo.
+- Validar **antes** de escribir caché, nunca al revés. Se corrigió cuatro veces
+  por no hacerlo. La comprobación vive en `src/rtgam/overpass.py`, fuera de las
+  fuentes, precisamente porque tenerla en una sola dejó a la otra arrastrando la
+  misma falla durante toda su vida. También se valida **al leer** la caché: un
+  payload malo pudo quedar en disco de una versión anterior del código.
 - El kernel es fijo: `exp(-d/300)`, cero pasados 800 m. Dos primitivas lo
   aplican y **no son intercambiables**: `accumulate_decay` **suma** sobre todos
   los puntos —cuenta cosas, y por eso pondera— y `nearest_decay` toma el

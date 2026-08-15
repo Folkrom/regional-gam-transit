@@ -16,6 +16,7 @@ from shapely.strtree import STRtree
 
 from rtgam import USER_AGENT
 from rtgam.geo import accumulate_decay
+from rtgam.overpass import validate_payload
 
 OVERPASS_URLS = (
     "https://overpass-api.de/api/interpreter",
@@ -257,30 +258,6 @@ def attractors_from_overpass(payload: dict) -> pd.DataFrame:
 
     frame = drop_nested(pd.DataFrame(rows, columns=ATTRACTOR_COLUMNS), polygons)
     return frame.reset_index(drop=True)
-
-
-def validate_payload(payload: dict) -> dict:
-    """Comprueba que una respuesta de Overpass sirve, antes de cachearla.
-
-    Overpass saturado responde HTTP 200 de dos maneras inservibles: con un
-    cuerpo HTML, que revienta al parsear, y con JSON valido que trae `elements`
-    vacio y el error dentro de `remark`. La segunda pasa cualquier
-    raise_for_status y cualquier json(), asi que hay que mirarla a mano.
-    """
-    if not isinstance(payload, dict) or "elements" not in payload:
-        raise ValueError(
-            "La respuesta de Overpass no trae 'elements'. No es una respuesta "
-            "util y no se va a cachear."
-        )
-
-    remark = payload.get("remark", "")
-    if remark:
-        raise ValueError(
-            f"Overpass respondio 200 pero con un remark de error: {remark}. "
-            f"El servidor esta saturado; reintenta mas tarde."
-        )
-
-    return payload
 
 
 def fetch_overpass(query: str, cache_path: Path, force: bool = False) -> dict:
