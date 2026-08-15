@@ -154,7 +154,7 @@ manda la estructura interna del zip. **Antes de diseñar sobre una fuente nueva,
 ábrela y míralas.**
 
 **Cuidado con las pruebas que pasan por la razón equivocada.** Es *la* trampa
-recurrente de este proyecto y ya lleva ocho apariciones. Las primeras tres: una
+recurrente de este proyecto y ya lleva nueve apariciones. Las primeras tres: una
 prueba de encoding que escribía y leía con la misma constante, unas de haversine
 que nunca ejercitaban el término del coseno, y una de patrón cuyos nombres
 cruzaban por otra alternativa. Después, en el censo, ningún test distinguía
@@ -163,10 +163,12 @@ de `presencia_transporte`, cuatro más: la frontera del corte a 800 m (todos los
 puntos caían lejos), la precedencia cable-sobre-riel (nunca se enfrentaban),
 una estación de riel sola (el fixture la colocaba encima de una de cable y el
 máximo lo enmascaraba), y `place=square` como atractor (nadie lo probaba solo).
+La novena es la misma frontera del corte, pero en `accumulate_decay`: se anotó
+como deuda al taparla en `nearest_decay` y se cerró en su propia rama.
 
 El patrón es siempre el mismo: **el fixture hace coincidir el camino correcto
-con el incorrecto**, así que la prueba no puede distinguirlos. En los ocho casos
-la implementación estaba bien; lo que faltaba era el test que la anclara.
+con el incorrecto**, así que la prueba no puede distinguirlos. En los nueve
+casos la implementación estaba bien; lo que faltaba era el test que la anclara.
 
 Por eso las revisiones de este repo se hacen **mutando el código real** y
 confirmando que la suite se pone roja, no leyendo el diff. Leer no cazó ninguno
