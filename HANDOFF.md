@@ -1,10 +1,10 @@
-# Handoff — estado al 2026-08-14
+# Handoff — estado al 2026-08-15
 
 Dónde quedó el proyecto y qué conviene saber antes de tocar nada.
 
 ## Estado
 
-`main` en `f9de6f0`, con las ocho variables integradas. 247 pruebas pasando en
+`main` en `9ce87f8`, con las ocho variables integradas. 251 pruebas pasando en
 1 s, sin red. El pipeline completo corre de punta a punta y el dashboard
 levanta.
 
@@ -90,15 +90,89 @@ así porque `osmnx` arrastra `geopandas`, `pyproj`, `rtree` y `scikit-learn` y
 cachea por su cuenta en paralelo al patrón del proyecto. No es *betweenness*:
 es alcance, metros de calle recorribles desde el centroide del hexágono.)
 
-Queda una deuda anotada y sin hacer, del tipo caro de este repo — el número
-equivocado que no lanza nada:
+**No queda deuda anotada.** Las dos que había —`fetch_stations` cacheando la
+respuesta de Overpass sin mirar `remark`, y la frontera exacta del corte sin
+test en `accumulate_decay`— se cerraron en sus ramas (PR #7 y #8).
 
-- **`accumulate_decay` no tiene cubierta la frontera exacta del corte.** Ningún
-  test pone un punto a exactamente `DECAY_CUTOFF_M`, así que mutar `<=` por `<`
-  sobrevive con la suite entera en verde. Se detectó al arreglar el mismo hueco
-  en `nearest_decay`, y se dejó fuera de aquella rama a propósito: es
-  preexistente y afecta a cuatro variables, no solo a la que se estaba
-  agregando. Merece su propia rama.
+### Próximo trabajo: filtrar el mapa por colonia
+
+Acordado y diseñado el 2026-08-15, listo para implementar. La fuente ya se
+sondeó y los números de abajo están medidos, no estimados: no hace falta
+volver a bajarla para decidir nada.
+
+**Qué es y qué no es.** Un **filtro de vista** en el dashboard: eliges colonias
+y el mapa oculta el resto. Los scores **no** se recalculan. Alcance y
+resolución son ejes distintos, y esto solo toca el primero — la rejilla se
+queda en H3 res 9.
+
+Se descartó a propósito re-normalizar dentro del subconjunto. `log1p_minmax`
+corre sobre las filas que le des, así que filtrar antes de normalizar estira
+cada variable a 0-1 dentro de las colonias elegidas: re-ordena, y si el
+subconjunto tiene `competencia` casi uniforme, amplifica ruido al rango
+completo. Filtrando después, el score sigue significando "contra toda GAM" y
+el rank 219 sigue siendo 219. Si la vista se queda corta, se agrega encima.
+
+**La trampa: no filtres las fuentes, solo los candidatos.** Una cafetería a
+300 m cruzando la calle compite igual aunque esté en otra colonia. Filtrar
+DENUE u OSM por colonia reproduciría el bug del borde que ya está documentado
+—76 de 724 hexágonos, el peor subestimado 7.5×— y ahí pegaría más fuerte: los
+bordes de colonia suman mucho más perímetro que el de la alcaldía.
+
+**Fuente.** `coloniascdmx` del portal de datos de la CDMX, Colonias del IECM
+2019. GeoJSON de 6 MB, CRS84 como todo lo demás, descarga directa sin llave:
+
+```
+https://datos.cdmx.gob.mx/dataset/04a1900a-0c2f-41ed-94dc-3d2d5bad4065/resource/8070ee81-9111-437e-a3dd-0c3cc6dce9f4/download/colonias-cdmx-.json
+```
+
+1,814 colonias en la CDMX; el campo `NOMDT` trae la alcaldía en mayúsculas sin
+acentos (`GUSTAVO A. MADERO`), `NOMUT` el nombre y `CVEUT` la clave. Ojo con
+el aviso de `boundary.py`: se evitó este portal porque sus URLs cambian entre
+versiones, así que si esa URL muere hay que volver a buscarla por la API CKAN
+(`/api/3/action/package_show?id=coloniascdmx`).
+
+OSM quedó descartada por medición: 15 polígonos contra 430 nodos
+`place=neighbourhood` en el bbox de GAM. Las colonias de la CDMX están
+mapeadas como puntos.
+
+**Lo medido, cruzando las 232 colonias de GAM contra los 724 hexágonos por
+punto-en-polígono del centroide:**
+
+- Las colonias cubren 87.2 de los 87.9 km² del polígono de GAM.
+- **12 hexágonos (1.7%) no caen en ninguna colonia.**
+- **194 colonias tienen al menos un hexágono; 38 no tienen ninguno.**
+- Mediana de 3 hexágonos por colonia, y 50 colonias tienen exactamente uno.
+- La causa es de tamaño: la colonia mediana son 0.275 km² contra 0.105 de una
+  celda res 9, y **59 de las 232 colonias son más chicas que una sola celda**.
+  Las 38 sin hexágono son las diminutas —mediana 0.041 km², la mayor 0.145— y
+  suman 1.8 de 87.3 km², el 2% del área.
+
+**Diseño acordado:**
+
+- Módulo nuevo `src/rtgam/colonias.py`, con `fetch_colonias(cache_path, force)`
+  —descarga, valida **antes** de cachear y filtra a GAM— y
+  `assign_colonia(centroids, colonias)`, punto-en-polígono con `shapely`, sin
+  `geopandas`.
+- Script propio `scripts/06_colonias.py`, no pegado a `01_build_grid.py`: son
+  6 MB y no quieres re-bajarlos cada vez que reconstruyes la rejilla.
+- Salida propia `data/processed/hex_colonias.parquet` (`hex_id`, `cve`,
+  `colonia`). **No** va como columna de `gam_hexes.parquet` ni entra a
+  `SOURCE_FILES`: no es variable del score, y ahí adentro `99_score.py`
+  intentaría normalizar una etiqueta. Archivo aparte, leído solo por el
+  dashboard, radio de daño cero sobre el pipeline.
+- Dashboard: multiselect, por defecto todas, filtrando el frame ya puntuado.
+- Los 12 huérfanos entran al selector como `(sin colonia)`; no se tiran en
+  silencio. Las 38 colonias sin hexágono **no** se listan, y el script imprime
+  cuántas quedaron fuera y por qué: un selector que ofrece una colonia y
+  devuelve vacío es peor que uno que no la ofrece.
+- Pruebas sin red, sobre funciones puras: parseo del payload, filtro por
+  alcaldía, asignación, huérfanos. Verificadas mutando.
+
+**Lo que este filtro no resuelve.** Con 3 hexágonos por colonia mediana sirve
+para "estas cinco colonias" y se queda corto para "dentro de esta colonia, cuál
+esquina". Bajar a res 10 daría más alfileres, no más conocimiento: el piso del
+AGEB y el tau de 300 m no se mueven, así que los hijos heredarían valores casi
+idénticos al del hexágono padre. Esa es una decisión de campo, no de dato.
 
 ## Dónde los números NO son confiables
 
@@ -172,7 +246,7 @@ casos la implementación estaba bien; lo que faltaba era el test que la anclara.
 
 Por eso las revisiones de este repo se hacen **mutando el código real** y
 confirmando que la suite se pone roja, no leyendo el diff. Leer no cazó ninguno
-de los ocho; mutar los cazó todos.
+de los nueve; mutar los cazó todos.
 
 **pyarrow está fijado en `<22` y no es capricho.** La 25.0.0 revienta el
 dashboard con SIGSEGV dentro del hilo de scripts de Streamlit, de forma
