@@ -6,7 +6,7 @@ Dónde quedó el proyecto y qué conviene saber antes de tocar nada.
 
 `main` en `b00a95a`, con las ocho variables integradas y el filtro por colonia
 del dashboard (PR #9). Encima, sin mergear todavía, el arreglo del bug del borde
-de DENUE. 276 pruebas pasando en 1 s, sin red. El pipeline completo
+en DENUE y en OSM. 279 pruebas pasando en 1 s, sin red. El pipeline completo
 corre de punta a punta y el dashboard levanta.
 
 **Cobertura del score: 724 de 724 hexágonos.** Arrancó en 218 con solo la fuente
@@ -40,7 +40,7 @@ Una sola regla los recorta ahora, y importa:
   Hermanos Galeana trae 59 atractores mapeados por separado —56 canchas, 2
   juegos infantiles y un jardín— y contaba 60 veces. Por eso la consulta pide
   `out geom` y no `out tags center`: un centro no contiene nada. La caché se
-  llama `osm_atractores_geom.json`, con nombre distinto al de la vieja a
+  llama `osm_atractores_geom_800m.json`, con nombre distinto al de la vieja a
   propósito — reusar aquella dejaría de detectar el anidamiento en silencio.
 
 El dedup por nombre que había aquí murió con las estaciones: solo aplicaba a
@@ -214,15 +214,18 @@ antes de sacar conclusiones del mapa.
   exactamente cero y un rank medio de 454.6 de 724; ahora quedan en 376.0.
   **Ninguno entra al top 100**: el mejor queda en el puesto 219. La variable
   dice que hay estación, no cuánta gente la usa.
-- **Los bordes de GAM ya no salen bajos en DENUE** (arreglado el 2026-08-23,
-  ver abajo). Quedan dos restos. Uno: DENUE se baja por entidad completa, así
-  que si el área de estudio tocara Hidalgo habría que sumar esa entidad a
-  `DENUE_PARTES`. Dos, y sin medir: **OSM se pide con el bounding box exacto
-  del polígono de GAM, sin margen** (`scripts/04_osm.py:55-57`), así que
-  `atractores_osm` y `accesibilidad_peatonal` conservan una versión suave del
-  mismo bug —un parque a 300 m del borde norte no existe para el modelo—. El
-  arreglo es sumarle 800 m al bbox y volver a correr `04`, con el costo de
-  re-bajar los 17.6 MB de la red peatonal.
+- **Los bordes de GAM ya no salen bajos** (arreglado el 2026-08-23). Eran dos
+  bugs con la misma forma. DENUE se recortaba por municipio: ver abajo. Y OSM se
+  pedía con el bounding box exacto del polígono, sin margen, así que una calle o
+  un parque a 300 m del borde no existían. Ahora la consulta lleva 800 m de
+  margen. Medido con un solo payload recortado a las dos cajas —mismo día, mismo
+  snapshot de OSM, sin la deriva que ensuciaba la primera comparación—: ningún
+  hexágono baja, 7 de 724 ganan más de 5% de `accesibilidad_peatonal` y el peor
+  1.81× (2,061 a 3,722 m). En `atractores_osm` el efecto es despreciable: la
+  media queda en 2.75 y ninguno gana más de un atractor, porque los 654
+  elementos extra del payload caen casi todos fuera del corte de 800 m.
+  Lo que queda: DENUE se baja por entidad completa, así que si el área de
+  estudio tocara Hidalgo habría que sumar esa entidad a `DENUE_PARTES`.
 - **Las distancias son euclidianas.** El Chiquihuite, el Río de los Remedios y la
   autopista México-Pachuca no existen para el modelo, así que los hexágonos
   detrás de ellos salen sobrevalorados.

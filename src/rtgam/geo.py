@@ -1,5 +1,6 @@
 """Primitivas geoespaciales: distancia, grid H3 y kernel de decaimiento."""
 
+import math
 from collections.abc import Iterable
 
 import h3
@@ -57,6 +58,32 @@ DECAY_CUTOFF_M = 800.0
 # sobre una celda real de GAM.
 H3_RES9_CIRCUMRADIUS_M = 217.9
 COLLAR_RINGS = 3
+
+
+def bbox_with_margin(
+    bounds: tuple[float, float, float, float], margin_m: float = DECAY_CUTOFF_M
+) -> tuple[float, float, float, float]:
+    """Bounding box de Overpass -sur, oeste, norte, este- con margen en metros.
+
+    `bounds` viene de shapely en su orden: (oeste, sur, este, norte). Los dos
+    ordenes existen y no son intercambiables; convertirlos aqui evita que cada
+    script lo haga a mano.
+
+    El margen no es decorativo: sin el, la consulta corta justo en el limite y
+    un parque o una calle a 300 m del borde no existen para el modelo, que es
+    el mismo bug del borde que DENUE tenia por filtrar por municipio. Medido
+    sobre la red peatonal, con margen de 800 m siete hexagonos de 724 ganan mas
+    de 5% de alcance y el peor 1.81x (2,061 a 3,722 m).
+
+    Un grado de latitud son ~111 km, pero uno de longitud se encoge con el
+    coseno de la latitud: usar 111 para los dos dejaria el margen en longitud
+    corto justo donde hace falta.
+    """
+    oeste, sur, este, norte = bounds
+    d_lat = margin_m / 111_000.0
+    lat_mid = math.radians((sur + norte) / 2)
+    d_lon = margin_m / (111_000.0 * math.cos(lat_mid))
+    return (sur - d_lat, oeste - d_lon, norte + d_lat, este + d_lon)
 
 
 def cells_near_grid(hexes: Iterable[str], rings: int = COLLAR_RINGS) -> set[str]:

@@ -9,6 +9,7 @@ from rtgam.geo import (
     DECAY_CUTOFF_M,
     DECAY_TAU_M,
     accumulate_decay,
+    bbox_with_margin,
     cells_near_grid,
     haversine_m,
     hex_centroids,
@@ -303,3 +304,33 @@ def test_collar_deja_fuera_lo_que_no_puede_aportar():
 
 def test_collar_rings_es_tres():
     assert COLLAR_RINGS == 3
+
+
+def test_bbox_con_margen_reordena_a_la_convencion_de_overpass():
+    """shapely da (oeste, sur, este, norte); Overpass espera (sur, oeste,
+    norte, este). Los dos ordenes existen y confundirlos no lanza: devuelve
+    una caja en otro lugar del mundo."""
+    sur, oeste, norte, este = bbox_with_margin((-99.2, 19.4, -99.0, 19.6), margin_m=0.0)
+    assert (sur, oeste, norte, este) == pytest.approx((19.4, -99.2, 19.6, -99.0))
+
+
+def test_bbox_con_margen_cubre_un_punto_a_la_distancia_del_corte():
+    """La propiedad que arregla el borde: lo que esta dentro del corte tiene
+    que caber en la consulta."""
+    sur, oeste, norte, este = bbox_with_margin((-99.2, 19.4, -99.0, 19.6))
+    justo_al_norte = 19.6 + DECAY_CUTOFF_M / 111_195.0
+    justo_al_este = -99.0 + DECAY_CUTOFF_M / (111_195.0 * np.cos(np.radians(19.5)))
+    assert sur < 19.4 and oeste < -99.2
+    assert norte > justo_al_norte
+    assert este > justo_al_este
+
+
+def test_el_margen_en_longitud_usa_el_coseno_de_la_latitud():
+    """Un grado de longitud se encoge con la latitud, asi que el margen en
+    grados tiene que ser MAS ancho que el de latitud, no igual. Con 111 km en
+    los dos ejes el margen en longitud sale corto justo donde hace falta."""
+    sur, oeste, norte, este = bbox_with_margin((-99.2, 19.4, -99.0, 19.6))
+    margen_lat = 19.4 - sur
+    margen_lon = -99.2 - oeste
+    assert margen_lon > margen_lat
+    assert margen_lon == pytest.approx(margen_lat / np.cos(np.radians(19.5)), rel=1e-6)

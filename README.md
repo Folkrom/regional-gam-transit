@@ -133,9 +133,15 @@ del dashboard.
   establecimientos de fuera de GAM, sobre todo de Tlalnepantla (9,000),
   Venustiano Carranza (6,054), Nezahualcóyotl (4,631), Azcapotzalco (3,332),
   Cuauhtémoc (3,284) y Ecatepec (2,725).
+- ~~La consulta de OSM usa el bounding box exacto de GAM~~ **Arreglado el
+  2026-08-23.** Lleva 800 m de margen, igual que DENUE. Medido: 7 de 724
+  hexágonos ganan más de 5% de `accesibilidad_peatonal`, el peor 1.81×; en
+  `atractores_osm` el efecto es despreciable. La caché cambió de nombre
+  (`osm_red_peatonal_800m.json`) para que una descarga sin margen no se reuse en
+  silencio bajo el código nuevo.
 - Los polígonos grandes de OSM van por su centroide, así que el Bosque de San
   Juan de Aragón (~1.3 km de largo) sale subestimado. Medido sobre la corrida
-  vigente (`data/raw/osm_atractores_geom.json`): 56 de los 1,218 atractores
+  vigente (`data/raw/osm_atractores_geom_800m.json`): 56 de los 1,218 atractores
   pasan de 400 m de extensión (diagonal del bounding box). 1,148 de ellos
   tienen polígono; los 70 restantes son nodos sueltos, que no tienen
   extensión que subestimar.

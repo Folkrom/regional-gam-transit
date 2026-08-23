@@ -17,6 +17,7 @@ import networkx as nx
 import pandas as pd
 
 from rtgam.boundary import fetch_gam_polygon
+from rtgam.geo import DECAY_CUTOFF_M, bbox_with_margin
 from rtgam.red import (
     MAX_SNAP_M,
     WALK_CUTOFF_M,
@@ -35,11 +36,15 @@ from rtgam.sources.osm import (
 ROOT = Path(__file__).resolve().parents[1]
 RAW = ROOT / "data" / "raw"
 BOUNDARY = RAW / "gam_boundary.geojson"
-RED_CACHE = RAW / "osm_red_peatonal.json"
+# El margen del bbox va en el NOMBRE de la cache a proposito. Con el nombre de
+# antes, una cache bajada sin margen se reusaria tal cual bajo el codigo nuevo:
+# el margen quedaria escrito en la consulta y ausente en los datos, sin que
+# nada fallara y con el bug del borde intacto.
+RED_CACHE = RAW / "osm_red_peatonal_800m.json"
 # Nombre distinto al de la cache vieja a proposito. Aquella se bajo con
 # `out tags center` y no trae poligonos: reusarla dejaria de detectar el
 # anidamiento y devolveria los 1,776 atractores sin colapsar, en silencio.
-ATRACTORES_CACHE = RAW / "osm_atractores_geom.json"
+ATRACTORES_CACHE = RAW / "osm_atractores_geom_800m.json"
 HEXES = ROOT / "data" / "processed" / "gam_hexes.parquet"
 OUTPUT = ROOT / "data" / "processed" / "osm.parquet"
 
@@ -52,10 +57,12 @@ def main() -> None:
     args = parser.parse_args()
 
     polygon = fetch_gam_polygon(BOUNDARY)
-    minx, miny, maxx, maxy = polygon.bounds
-    # Overpass espera (sur, oeste, norte, este); shapely da (oeste, sur, este, norte).
-    bbox = (miny, minx, maxy, maxx)
-    print(f"Bounding box: {bbox[0]:.4f},{bbox[1]:.4f},{bbox[2]:.4f},{bbox[3]:.4f}")
+    # Con el margen de 800 m: una calle o un parque justo afuera del limite
+    # sirven igual a un hexagono del borde. Sin el, la consulta reproduce el
+    # bug que DENUE tenia por filtrar por municipio.
+    bbox = bbox_with_margin(polygon.bounds)
+    print(f"Bounding box +{DECAY_CUTOFF_M:.0f} m: "
+          f"{bbox[0]:.4f},{bbox[1]:.4f},{bbox[2]:.4f},{bbox[3]:.4f}")
 
     print("Descargando la red caminable (son decenas de MB, tarda)...")
     red = fetch_overpass(build_network_query(bbox), RED_CACHE, force=args.force)
