@@ -3,74 +3,126 @@
 Aporta dos columnas al score: `competencia` (cafeterias existentes) y
 `atractores_denue` (comercio que genera peaton de calle).
 
-El archivo se descarga entero para CDMX (462,732 unidades) y se filtra a GAM
-en la lectura, para no cargar el resto en memoria.
+Se descargan tres archivos y se recortan por DISTANCIA a la rejilla, no por
+municipio. Filtrar por municipio era el bug del borde: un negocio a 300 m
+cruzando la calle no contaba por estar del otro lado de una linea
+administrativa. Medido sobre GAM, 219 de 724 hexagonos perdian mas de un
+atractor y el peor salia subestimado 12.2 veces.
 """
 
 import io
 import zipfile
+from collections.abc import Iterable
 from pathlib import Path
 
+import h3
 import pandas as pd
 import requests
 
 from rtgam import USER_AGENT
-from rtgam.geo import accumulate_decay
+from rtgam.geo import H3_RESOLUTION, accumulate_decay
 
-DENUE_URL = "https://www.inegi.org.mx/contenidos/masiva/denue/denue_09_csv.zip"
+DENUE_BASE_URL = "https://www.inegi.org.mx/contenidos/masiva/denue/"
 DENUE_TIMEOUT_S = 300
+
+# CDMX (09) y Estado de Mexico (15). GAM colinda al norte y al oriente con
+# Tlalnepantla de Baz y Ecatepec de Morelos, y ese lado pesa mas que el de
+# CDMX: aporta 147 hexagonos con mas de un atractor ganado, contra 76 del
+# resto de la ciudad.
+#
+# Edomex viene partido en dos archivos, y el corte NO es por municipio: los
+# dos traen los mismos 125 municipios. Quedarse con el primero perderia ~40%
+# de cada municipio fronterizo -13,701 de los 33,393 establecimientos de
+# Tlalnepantla, por ejemplo- sin un solo error, solo con numeros mas chicos.
+DENUE_PARTES = ("denue_09_csv", "denue_15_1_csv", "denue_15_2_csv")
 
 # El CSV de DENUE viene en latin-1, no en utf-8. Verificado leyendo el archivo
 # real: en utf-8 revienta con UnicodeDecodeError.
 DENUE_ENCODING = "latin-1"
 
-GAM_MUNICIPIO = "Gustavo A. Madero"
-
-# De las 42 columnas del archivo solo se leen estas cinco. Las demas son
+# De las 42 columnas del archivo solo se leen estas seis. Las demas son
 # domicilio desglosado, telefono, correo y web, que no se usan.
 USECOLS = ["nom_estab", "codigo_act", "per_ocu", "municipio", "latitud", "longitud"]
 
 
-def load_gam(csv_path: str | Path) -> pd.DataFrame:
-    """Lee el CSV de DENUE y devuelve solo los establecimientos de GAM.
+def load_cerca_de_gam(
+    csv_paths: Iterable[str | Path], collar: set[str]
+) -> pd.DataFrame:
+    """Lee los CSV de DENUE y devuelve lo que cae dentro o cerca de la rejilla.
 
-    Renombra latitud/longitud a lat/lon, que es lo que espera
-    accumulate_decay, y descarta las filas sin coordenada: no se pueden
-    ubicar, y un NaN llegaria hasta el reparto espacial, que lanza.
+    `collar` sale de geo.cells_near_grid: las celdas de GAM mas tres anillos.
+    Un establecimiento fuera de ahi esta a mas de 800 m de todo centroide y
+    aportaria cero, asi que descartarlo no cambia ninguna cifra y evita cargar
+    a memoria el resto de dos entidades.
+
+    Cada archivo se recorta al leerlo y solo despues se concatenan: juntar
+    primero los tres completos serian 1.3 millones de filas en memoria a la
+    vez, para quedarse con 79 mil.
+
+    Renombra latitud/longitud a lat/lon, que es lo que espera accumulate_decay,
+    y descarta las filas sin coordenada: no se pueden ubicar, y un NaN llegaria
+    hasta el reparto espacial, que lanza.
     """
+    frames = [_load_one(path, collar) for path in csv_paths]
+    if not frames:
+        raise ValueError("No se paso ningun CSV de DENUE que leer.")
+
+    frame = pd.concat(frames, ignore_index=True)
+    if frame.empty:
+        raise ValueError(
+            "Ningun establecimiento del DENUE cayo dentro del collar de la "
+            "rejilla. Con la rejilla de GAM eso no puede pasar: revisa que los "
+            "CSV sean los de las entidades correctas y que traigan coordenadas."
+        )
+    return frame
+
+
+def _load_one(csv_path: str | Path, collar: set[str]) -> pd.DataFrame:
     frame = pd.read_csv(
         csv_path, encoding=DENUE_ENCODING, usecols=USECOLS, low_memory=False
     )
-    frame = frame[frame["municipio"].astype(str) == GAM_MUNICIPIO]
-    if frame.empty:
-        raise ValueError(
-            f"Ninguna fila con municipio == {GAM_MUNICIPIO!r}. Si INEGI cambio "
-            f"la escritura del nombre, ambas variables saldrian en cero sin que "
-            f"nada fallara, y el score las reportaria como presentes."
-        )
     frame = frame.rename(columns={"latitud": "lat", "longitud": "lon"})
     frame = frame.dropna(subset=["lat", "lon"])
-    return frame.drop(columns=["municipio"]).reset_index(drop=True)
+    celdas = [
+        h3.latlng_to_cell(lat, lon, H3_RESOLUTION)
+        for lat, lon in zip(frame["lat"], frame["lon"])
+    ]
+    return frame[[celda in collar for celda in celdas]].reset_index(drop=True)
 
 
-def fetch_denue_csv(cache_dir: Path, force: bool = False) -> Path:
-    """Descarga el DENUE de CDMX y devuelve la ruta del CSV extraido.
+def fetch_denue_csvs(cache_dir: Path, force: bool = False) -> list[Path]:
+    """Descarga las tres partes del DENUE y devuelve sus CSV extraidos.
 
-    El zip son 45 MB y el CSV extraido 248 MB, asi que se cachean en disco y
-    no se vuelven a bajar salvo con force.
+    En orden: CDMX, y las dos mitades del Estado de Mexico. Las tres hacen
+    falta; ver DENUE_PARTES para por que la segunda mitad no es opcional.
+    """
+    return [fetch_denue_csv(cache_dir, parte, force=force) for parte in DENUE_PARTES]
+
+
+def fetch_denue_csv(cache_dir: Path, parte: str, force: bool = False) -> Path:
+    """Descarga una parte del DENUE y devuelve la ruta del CSV extraido.
+
+    Los zips van de 30 a 50 MB y los CSV extraidos de 160 a 260 MB, asi que se
+    cachean en disco y no se vuelven a bajar salvo con force.
+
+    `parte` es el nombre del archivo sin extension, tal cual lo publica INEGI
+    (`denue_09_csv`), y da nombre tanto al zip cacheado como al CSV extraido:
+    con tres partes en el mismo directorio, un nombre fijo haria que la ultima
+    pisara a las anteriores y las tres corridas leyeran la misma entidad.
 
     El zip se escribe DESPUES de comprobar que abre y trae un CSV dentro. Al
     reves, una respuesta 200 con contenido inservible quedaria persistida y
     envenenaria todas las corridas siguientes.
     """
     cache_dir.mkdir(parents=True, exist_ok=True)
-    zip_path = cache_dir / "denue_09_csv.zip"
+    zip_path = cache_dir / f"{parte}.zip"
+    csv_name = f"{parte}.csv"
 
     if zip_path.exists() and not force:
         try:
             with zipfile.ZipFile(zip_path) as zf:
                 name = first_csv(zf)
-                return _extract(zf, name, cache_dir)
+                return _extract(zf, name, cache_dir, csv_name)
         except zipfile.BadZipFile as error:
             raise ValueError(
                 f"La cache {zip_path} esta corrupta o truncada. Borrala o "
@@ -78,7 +130,9 @@ def fetch_denue_csv(cache_dir: Path, force: bool = False) -> Path:
             ) from error
 
     response = requests.get(
-        DENUE_URL, headers={"User-Agent": USER_AGENT}, timeout=DENUE_TIMEOUT_S
+        f"{DENUE_BASE_URL}{parte}.zip",
+        headers={"User-Agent": USER_AGENT},
+        timeout=DENUE_TIMEOUT_S,
     )
     response.raise_for_status()
 
@@ -88,7 +142,7 @@ def fetch_denue_csv(cache_dir: Path, force: bool = False) -> Path:
 
     zip_path.write_bytes(content)
     with zipfile.ZipFile(zip_path) as zf:
-        return _extract(zf, name, cache_dir, overwrite=True)
+        return _extract(zf, name, cache_dir, csv_name, overwrite=True)
 
 
 def first_csv(zf: zipfile.ZipFile) -> str:
@@ -125,7 +179,11 @@ def first_csv(zf: zipfile.ZipFile) -> str:
 
 
 def _extract(
-    zf: zipfile.ZipFile, name: str, cache_dir: Path, overwrite: bool = False
+    zf: zipfile.ZipFile,
+    name: str,
+    cache_dir: Path,
+    csv_name: str,
+    overwrite: bool = False,
 ) -> Path:
     """Extrae el CSV del zip a cache_dir.
 
@@ -133,7 +191,7 @@ def _extract(
     nuevo pero se conserva el CSV extraido de antes, el llamador recibiria en
     silencio los datos viejos, que es justo lo que --force venia a evitar.
     """
-    destination = cache_dir / "denue_gam.csv"
+    destination = cache_dir / csv_name
     esperado = zf.getinfo(name).file_size
     completo = destination.exists() and destination.stat().st_size == esperado
     if overwrite or not completo:
@@ -153,7 +211,7 @@ COMPETENCIA_SCIAN = "722515"
 ATTRACTOR_SECTORS = ("46", "72", "61", "62", "71")
 
 # SCIAN 722515 es "cafeterias, fuentes de sodas, neverias, refresquerias y
-# paleterias". En GAM son 1026 establecimientos y solo 296 parecen cafe: el
+# paleterias". En GAM eran 1026 establecimientos y solo 296 parecian cafe: el
 # resto son paleterias, aguas y puestos de antojitos. Usar el codigo crudo
 # inflaria la competencia 3.5 veces y castigaria justo las zonas de mucho
 # peaton, que es lo contrario de lo que el score busca.

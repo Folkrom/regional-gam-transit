@@ -1,12 +1,15 @@
+import h3
 import numpy as np
 import pandas as pd
 import pytest
 from shapely.geometry import Polygon
 
 from rtgam.geo import (
+    COLLAR_RINGS,
     DECAY_CUTOFF_M,
     DECAY_TAU_M,
     accumulate_decay,
+    cells_near_grid,
     haversine_m,
     hex_centroids,
     hexes_for_polygon,
@@ -243,3 +246,60 @@ def test_nearest_decay_incluye_la_frontera_exacta_del_corte():
     out = nearest_decay(centroids, punto, cutoff=cutoff_exacto)
     assert out["a"] == pytest.approx(np.exp(-cutoff_exacto / 300.0))
     assert out["a"] > 0.0
+
+
+def _puntos_alrededor(lat, lon, distancia_m, cuantos=36):
+    """`cuantos` puntos a `distancia_m` del centro, en todas las direcciones.
+
+    Un solo rumbo no sirve: la celda H3 es un hexagono y su radio depende de la
+    direccion, asi que la direccion mas exigente hay que buscarla, no suponerla.
+    """
+    for i in range(cuantos):
+        rumbo = 2 * np.pi * i / cuantos
+        dlat = distancia_m * np.cos(rumbo) / 111_195.0
+        dlon = distancia_m * np.sin(rumbo) / (111_195.0 * np.cos(np.radians(lat)))
+        yield lat + dlat, lon + dlon
+
+
+def test_collar_incluye_las_celdas_de_la_propia_rejilla():
+    rejilla = {h3.latlng_to_cell(19.5, -99.1, 9), h3.latlng_to_cell(19.52, -99.12, 9)}
+    assert rejilla <= cells_near_grid(rejilla)
+
+
+def test_collar_no_pierde_ningun_punto_dentro_del_corte():
+    """La propiedad que hace correcto recortar la fuente con el collar.
+
+    Si un punto a 800 m quedara fuera, su aporte se perderia sin error: la
+    columna saldria mas baja y nada lo diria. Es el mismo bug del borde que el
+    collar vino a arreglar, con otro disfraz.
+    """
+    centro = (19.5, -99.1)
+    collar = cells_near_grid([h3.latlng_to_cell(*centro, 9)])
+    for lat, lon in _puntos_alrededor(*centro, DECAY_CUTOFF_M):
+        assert h3.latlng_to_cell(lat, lon, 9) in collar
+
+
+def test_dos_anillos_no_alcanzan():
+    """Por que COLLAR_RINGS es 3 y no menos: con 2, hay puntos dentro del corte
+    que se quedan fuera. Sin esta prueba, bajarlo pasaria desapercibido."""
+    centro = (19.5, -99.1)
+    corto = cells_near_grid([h3.latlng_to_cell(*centro, 9)], rings=2)
+    fuera = [
+        (lat, lon)
+        for lat, lon in _puntos_alrededor(*centro, DECAY_CUTOFF_M)
+        if h3.latlng_to_cell(lat, lon, 9) not in corto
+    ]
+    assert fuera
+
+
+def test_collar_deja_fuera_lo_que_no_puede_aportar():
+    """Prueba con dientes: si el collar se tragara todo, la de arriba pasaria
+    igual y el recorte no estaria recortando nada."""
+    centro = (19.5, -99.1)
+    collar = cells_near_grid([h3.latlng_to_cell(*centro, 9)])
+    for lat, lon in _puntos_alrededor(*centro, 3_000.0):
+        assert h3.latlng_to_cell(lat, lon, 9) not in collar
+
+
+def test_collar_rings_es_tres():
+    assert COLLAR_RINGS == 3

@@ -2,22 +2,36 @@ import io
 import zipfile
 from pathlib import Path
 
+import h3
 import pandas as pd
 import pytest
 import requests
 
+from rtgam.geo import H3_RESOLUTION, cells_near_grid
 from rtgam.sources.denue import (
     DENUE_ENCODING,
-    GAM_MUNICIPIO,
+    DENUE_PARTES,
     fetch_denue_csv,
-    load_gam,
+    fetch_denue_csvs,
+    load_cerca_de_gam,
 )
+
+PARTE = "denue_09_csv"
+
+# Collar alrededor de un solo hexagono, el que contiene a las filas de GAM del
+# fixture. Los establecimientos lejanos quedan fuera por distancia, que es
+# justo el criterio que reemplazo al filtro por municipio.
+COLLAR = cells_near_grid([h3.latlng_to_cell(19.505, -99.105, H3_RESOLUTION)])
+
+
+def load(path):
+    return load_cerca_de_gam([path], COLLAR)
 
 FILAS = [
     "id,nom_estab,codigo_act,per_ocu,municipio,latitud,longitud",
     "1,CAFÉ MARTÍNEZ,722515,0 a 5 personas,Gustavo A. Madero,19.50,-99.10",
     "2,PAPELERÍA SOLÍS,465311,0 a 5 personas,Gustavo A. Madero,19.51,-99.11",
-    "3,TIENDA DE OTRA ALCALDÍA,461110,0 a 5 personas,Coyoacán,19.34,-99.16",
+    "3,TIENDA LEJANA,461110,0 a 5 personas,Coyoacán,19.34,-99.16",
 ]
 
 
@@ -37,21 +51,40 @@ def test_lee_en_latin1_sin_romper_acentos(tmp_path):
     encoding mal leido que no fallo, solo perdio un tercio de los datos en
     silencio.
     """
-    df = load_gam(_write_csv(tmp_path))
+    df = load(_write_csv(tmp_path))
     nombres = set(df["nom_estab"])
     assert "CAFÉ MARTÍNEZ" in nombres
     assert "PAPELERÍA SOLÍS" in nombres
 
 
-def test_filtra_solo_gam(tmp_path):
-    df = load_gam(_write_csv(tmp_path))
+def test_descarta_lo_que_esta_fuera_del_collar(tmp_path):
+    """A 20 km no aporta nada al reparto y solo engorda la matriz."""
+    df = load(_write_csv(tmp_path))
     assert len(df) == 2
-    assert "TIENDA DE OTRA ALCALDÍA" not in set(df["nom_estab"])
+    assert "TIENDA LEJANA" not in set(df["nom_estab"])
+
+
+def test_conserva_al_vecino_de_otro_municipio(tmp_path):
+    """El bug del borde, fijado como prueba.
+
+    Este establecimiento esta en Tlalnepantla, no en GAM, pero a ~150 m de un
+    centroide de la rejilla: compite y atrae peaton igual. El filtro viejo, por
+    municipio, lo tiraba, y con el 219 de 724 hexagonos salian bajos —el peor
+    subestimado 12.2 veces— sin que nada fallara.
+    """
+    ruta = tmp_path / "denue.csv"
+    filas = FILAS + [
+        "4,CAFÉ DE ENFRENTE,722515,0 a 5 personas,Tlalnepantla de Baz,19.5063,-99.1052"
+    ]
+    ruta.write_bytes("\n".join(filas).encode("latin-1"))
+    df = load(ruta)
+    assert "CAFÉ DE ENFRENTE" in set(df["nom_estab"])
+    assert set(df["municipio"]) == {"Gustavo A. Madero", "Tlalnepantla de Baz"}
 
 
 def test_renombra_coordenadas_a_lat_lon(tmp_path):
     """accumulate_decay espera lat/lon; DENUE los llama latitud/longitud."""
-    df = load_gam(_write_csv(tmp_path))
+    df = load(_write_csv(tmp_path))
     assert "lat" in df.columns
     assert "lon" in df.columns
     assert "latitud" not in df.columns
@@ -64,21 +97,41 @@ def test_descarta_filas_sin_coordenadas(tmp_path):
     path = tmp_path / "denue.csv"
     rows = FILAS + ["4,SIN UBICACION,461110,0 a 5 personas,Gustavo A. Madero,,"]
     path.write_bytes("\n".join(rows).encode(DENUE_ENCODING))
-    df = load_gam(path)
+    df = load(path)
     assert len(df) == 2
     assert not df[["lat", "lon"]].isna().any().any()
 
 
-def test_municipio_sin_coincidencias_lanza(tmp_path):
-    """Un cambio de escritura en el nombre dejaria ambas variables en cero."""
+def test_nada_dentro_del_collar_lanza(tmp_path):
+    """Con la rejilla de GAM esto no puede pasar, asi que si pasa es un bug de
+    entrada -entidad equivocada, coordenadas vacias- y no un cero legitimo."""
     ruta = tmp_path / "denue.csv"
     filas = [
         "id,nom_estab,codigo_act,per_ocu,municipio,latitud,longitud",
-        "1,ALGO,465311,0 a 5 personas,Otra Alcaldia,19.50,-99.10",
+        "1,ALGO,465311,0 a 5 personas,Merida,20.97,-89.62",
     ]
     ruta.write_bytes("\n".join(filas).encode("latin-1"))
-    with pytest.raises(ValueError, match="Gustavo A. Madero"):
-        load_gam(ruta)
+    with pytest.raises(ValueError, match="collar"):
+        load(ruta)
+
+
+def test_junta_las_partes_en_una_sola_tabla(tmp_path):
+    """Las tres partes se leen y se concatenan; ninguna pisa a las otras."""
+    rutas = []
+    for i, nombre in enumerate(["UNO", "DOS", "TRES"]):
+        ruta = tmp_path / f"parte{i}.csv"
+        ruta.write_bytes(
+            "\n".join(
+                [
+                    "id,nom_estab,codigo_act,per_ocu,municipio,latitud,longitud",
+                    f"{i},{nombre},465311,0 a 5 personas,Gustavo A. Madero,19.50,-99.10",
+                ]
+            ).encode("latin-1")
+        )
+        rutas.append(ruta)
+    df = load_cerca_de_gam(rutas, COLLAR)
+    assert set(df["nom_estab"]) == {"UNO", "DOS", "TRES"}
+    assert list(df.index) == [0, 1, 2]
 
 
 def test_extraccion_truncada_se_rehace(tmp_path):
@@ -86,21 +139,24 @@ def test_extraccion_truncada_se_rehace(tmp_path):
 
     write_bytes de 260 MB no es atomico: un Ctrl-C o un disco lleno dejan el
     archivo cortado, y sin esta comprobacion cada corrida posterior lo reusa.
-    Medido truncando el archivo real: 9,342 filas en vez de 50,927 y
+    Medido truncando el archivo real de CDMX: 9,342 filas en vez de 462,732 y
     competencia en cero, sin que nada lanzara.
     """
-    cache = tmp_path / "denue_09_csv.zip"
+    cache = tmp_path / f"{PARTE}.zip"
     with zipfile.ZipFile(cache, "w") as zf:
         zf.writestr("conjunto_de_datos/denue_inegi_09_.csv", "col\ncompleto")
 
-    destination = fetch_denue_csv(tmp_path)
+    destination = fetch_denue_csv(tmp_path, PARTE)
     destination.write_bytes(b"cor")  # simula extraccion cortada
 
-    assert fetch_denue_csv(tmp_path).read_text(encoding="latin-1") == "col\ncompleto"
+    assert fetch_denue_csv(tmp_path, PARTE).read_text(encoding="latin-1") == "col\ncompleto"
 
 
-def test_municipio_esperado_es_constante():
-    assert GAM_MUNICIPIO == "Gustavo A. Madero"
+def test_las_tres_partes_estan_declaradas():
+    """La segunda mitad de Edomex no es opcional: las dos traen los mismos 125
+    municipios, asi que quedarse con una perderia ~40% de cada uno de los
+    fronterizos sin un solo error."""
+    assert DENUE_PARTES == ("denue_09_csv", "denue_15_1_csv", "denue_15_2_csv")
 
 
 def test_encoding_declarado_es_latin1():
@@ -122,7 +178,7 @@ def test_el_archivo_no_es_utf8(tmp_path):
 
 def test_cache_corrupta_nombra_el_archivo_y_el_remedio(tmp_path, monkeypatch):
     """Una cache truncada debe decir cual archivo y como salir del problema."""
-    cache = tmp_path / "denue_09_csv.zip"
+    cache = tmp_path / f"{PARTE}.zip"
     cache.write_bytes(b"no soy un zip")
 
     def raises_error(*args, **kwargs):
@@ -131,17 +187,17 @@ def test_cache_corrupta_nombra_el_archivo_y_el_remedio(tmp_path, monkeypatch):
     monkeypatch.setattr(requests, "get", raises_error)
 
     with pytest.raises(ValueError, match="corrupta o truncada"):
-        fetch_denue_csv(tmp_path)
+        fetch_denue_csv(tmp_path, PARTE)
 
 
 def test_zip_sin_csv_adentro_falla_claro(tmp_path):
     """Un zip valido pero sin CSV es respuesta inservible, no cache buena."""
-    cache = tmp_path / "denue_09_csv.zip"
+    cache = tmp_path / f"{PARTE}.zip"
     with zipfile.ZipFile(cache, "w") as zf:
         zf.writestr("leeme.txt", "sin datos")
 
     with pytest.raises(ValueError, match="ningun .csv"):
-        fetch_denue_csv(tmp_path)
+        fetch_denue_csv(tmp_path, PARTE)
 
 
 def _zip_bytes(content: str) -> bytes:
@@ -168,13 +224,13 @@ def test_elige_los_datos_y_no_el_diccionario(tmp_path):
     vez de los datos, sin que nada fallara. Los fixtures de un solo CSV no
     podian atraparlo.
     """
-    cache = tmp_path / "denue_09_csv.zip"
+    cache = tmp_path / f"{PARTE}.zip"
     with zipfile.ZipFile(cache, "w") as zf:
         zf.writestr("diccionario_de_datos/diccionario.csv", "campo,descripcion")
         zf.writestr("conjunto_de_datos/denue_inegi_09_.csv", "col\ndatos_reales")
         zf.writestr("metadatos/metadatos.csv", "clave,valor")
 
-    destination = fetch_denue_csv(tmp_path)
+    destination = fetch_denue_csv(tmp_path, PARTE)
     assert "datos_reales" in destination.read_text(encoding="latin-1")
 
 
@@ -183,12 +239,12 @@ def test_zip_sin_conjunto_de_datos_falla_ruidoso(tmp_path):
 
     Caer al primer .csv alfabetico es justo lo que causo el bug original.
     """
-    cache = tmp_path / "denue_09_csv.zip"
+    cache = tmp_path / f"{PARTE}.zip"
     with zipfile.ZipFile(cache, "w") as zf:
         zf.writestr("otra_cosa/algo.csv", "col\nvalor")
 
     with pytest.raises(ValueError, match="conjunto_de_datos"):
-        fetch_denue_csv(tmp_path)
+        fetch_denue_csv(tmp_path, PARTE)
 
 
 def test_descarga_extrae_y_cachea(tmp_path, monkeypatch):
@@ -196,7 +252,7 @@ def test_descarga_extrae_y_cachea(tmp_path, monkeypatch):
     monkeypatch.setattr(
         requests, "get", lambda *a, **k: _RespuestaFalsa(_zip_bytes("col\nvalor"))
     )
-    destination = fetch_denue_csv(tmp_path)
+    destination = fetch_denue_csv(tmp_path, PARTE)
     assert destination.exists()
     assert (tmp_path / "denue_09_csv.zip").exists()
     assert destination.read_text(encoding="latin-1").startswith("col")
@@ -212,11 +268,35 @@ def test_force_reemplaza_el_csv_extraido(tmp_path, monkeypatch):
     monkeypatch.setattr(
         requests, "get", lambda *a, **k: _RespuestaFalsa(_zip_bytes("col\nviejo"))
     )
-    primero = fetch_denue_csv(tmp_path)
+    primero = fetch_denue_csv(tmp_path, PARTE)
     assert "viejo" in primero.read_text(encoding="latin-1")
 
     monkeypatch.setattr(
         requests, "get", lambda *a, **k: _RespuestaFalsa(_zip_bytes("col\nnuevo"))
     )
-    segundo = fetch_denue_csv(tmp_path, force=True)
+    segundo = fetch_denue_csv(tmp_path, PARTE, force=True)
     assert "nuevo" in segundo.read_text(encoding="latin-1")
+
+
+def test_cada_parte_tiene_su_propio_csv_extraido(tmp_path, monkeypatch):
+    """Con un nombre fijo, la ultima parte pisaria a las anteriores y las tres
+    lecturas devolverian la misma entidad, sin error."""
+    contenidos = {
+        "denue_09_csv": "col\ncdmx",
+        "denue_15_1_csv": "col\nedomex1",
+        "denue_15_2_csv": "col\nedomex2",
+    }
+
+    def responde(url, *a, **k):
+        parte = url.rsplit("/", 1)[1].removesuffix(".zip")
+        return _RespuestaFalsa(_zip_bytes(contenidos[parte]))
+
+    monkeypatch.setattr(requests, "get", responde)
+    rutas = fetch_denue_csvs(tmp_path)
+    assert len(rutas) == 3
+    assert len({r.name for r in rutas}) == 3
+    assert [r.read_text(encoding="latin-1").split("\n")[1] for r in rutas] == [
+        "cdmx",
+        "edomex1",
+        "edomex2",
+    ]

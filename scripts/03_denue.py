@@ -1,6 +1,6 @@
 """Fuente 2: competencia y atractores comerciales desde el DENUE de INEGI.
 
-Entrada: se descarga sola (45 MB) + data/processed/gam_hexes.parquet
+Entrada: se descarga sola (126 MB en tres zips) + data/processed/gam_hexes.parquet
 Salida:  data/processed/denue.parquet
 Auxiliar: data/interim/competencia_denue.csv (revisable a mano)
 
@@ -13,10 +13,11 @@ from pathlib import Path
 
 import pandas as pd
 
+from rtgam.geo import cells_near_grid
 from rtgam.sources.denue import (
     COFFEE_PATTERN,
-    fetch_denue_csv,
-    load_gam,
+    fetch_denue_csvs,
+    load_cerca_de_gam,
     split_competencia_atractores,
     to_hex_features,
 )
@@ -35,22 +36,33 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    csv_path = fetch_denue_csv(RAW, force=args.force)
-    gam = load_gam(csv_path)
-    print(f"Establecimientos en GAM: {len(gam):,}")
+    hexes = pd.read_parquet(HEXES)
+    collar = cells_near_grid(hexes.index)
 
-    competencia, atractores = split_competencia_atractores(gam)
+    csv_paths = fetch_denue_csvs(RAW, force=args.force)
+    cerca = load_cerca_de_gam(csv_paths, collar)
+    print(f"Establecimientos dentro del collar de la rejilla: {len(cerca):,}")
+    # El desglose por municipio es la evidencia de que el arreglo del borde
+    # sigue vivo: si un dia vuelve a salir solo Gustavo A. Madero, el filtro
+    # se rompio y las dos columnas saldrian bajas sin que nada lanzara.
+    print("  por municipio:")
+    for municipio, cuantos in cerca["municipio"].value_counts().head(8).items():
+        print(f"    {municipio:24s} {cuantos:>7,}")
+
+    competencia, atractores = split_competencia_atractores(cerca)
     print(f"  competencia (cafeterias): {len(competencia):,}")
     print(f"  atractores (comercio de calle): {len(atractores):,}")
 
     COMPETENCIA_REVISION.parent.mkdir(parents=True, exist_ok=True)
-    competencia[["nom_estab", "codigo_act", "lat", "lon"]].to_csv(
+    # El municipio va en la lista de revision porque desde el arreglo del
+    # borde hay competencia legitima fuera de GAM, y sin la columna parece
+    # dato colado.
+    competencia[["nom_estab", "codigo_act", "municipio", "lat", "lon"]].to_csv(
         COMPETENCIA_REVISION, index=False
     )
     print(f"Lista de competencia para revisar a mano: {COMPETENCIA_REVISION}")
     print(f"  el patron de nombres usado fue: {COFFEE_PATTERN[:60]}...")
 
-    hexes = pd.read_parquet(HEXES)
     features = to_hex_features(hexes, competencia, atractores)
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     features.to_parquet(OUTPUT)
