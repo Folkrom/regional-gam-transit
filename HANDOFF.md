@@ -4,10 +4,9 @@ Dónde quedó el proyecto y qué conviene saber antes de tocar nada.
 
 ## Estado
 
-`main` en `9ce87f8`, con las ocho variables integradas. La rama
-`feat/colonias-scope-doc` le suma el filtro por colonia del dashboard: 268
-pruebas pasando en 1 s, sin red. El pipeline completo corre de punta a punta y el dashboard
-levanta.
+`main` en `b00a95a`, con las ocho variables integradas y el filtro por colonia
+del dashboard (PR #9). 268 pruebas pasando en 1 s, sin red. El pipeline completo
+corre de punta a punta y el dashboard levanta.
 
 **Cobertura del score: 724 de 724 hexágonos.** Arrancó en 218 con solo la fuente
 de transporte; DENUE cubrió el 70% de GAM que estaba invisible, y OSM cerró los
