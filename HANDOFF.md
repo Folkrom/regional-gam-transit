@@ -1,11 +1,12 @@
-# Handoff — estado al 2026-08-14
+# Handoff — estado al 2026-08-23
 
 Dónde quedó el proyecto y qué conviene saber antes de tocar nada.
 
 ## Estado
 
-`main` en `f9de6f0`, con las ocho variables integradas. 247 pruebas pasando en
-1 s, sin red. El pipeline completo corre de punta a punta y el dashboard
+`main` en `9ce87f8`, con las ocho variables integradas. La rama
+`feat/colonias-scope-doc` le suma el filtro por colonia del dashboard: 268
+pruebas pasando en 1 s, sin red. El pipeline completo corre de punta a punta y el dashboard
 levanta.
 
 **Cobertura del score: 724 de 724 hexágonos.** Arrancó en 218 con solo la fuente
@@ -58,6 +59,7 @@ uv run python scripts/02_transporte.py
 uv run python scripts/03_denue.py
 uv run python scripts/04_osm.py
 uv run python scripts/05_censo.py
+uv run python scripts/06_colonias.py
 uv run python scripts/99_score.py
 uv run streamlit run app/dashboard.py
 ```
@@ -90,15 +92,78 @@ así porque `osmnx` arrastra `geopandas`, `pyproj`, `rtree` y `scikit-learn` y
 cachea por su cuenta en paralelo al patrón del proyecto. No es *betweenness*:
 es alcance, metros de calle recorribles desde el centroide del hexágono.)
 
-Queda una deuda anotada y sin hacer, del tipo caro de este repo — el número
-equivocado que no lanza nada:
+**No queda deuda anotada.** Las dos que había —`fetch_stations` cacheando la
+respuesta de Overpass sin mirar `remark`, y la frontera exacta del corte sin
+test en `accumulate_decay`— se cerraron en sus ramas (PR #7 y #8).
 
-- **`accumulate_decay` no tiene cubierta la frontera exacta del corte.** Ningún
-  test pone un punto a exactamente `DECAY_CUTOFF_M`, así que mutar `<=` por `<`
-  sobrevive con la suite entera en verde. Se detectó al arreglar el mismo hueco
-  en `nearest_decay`, y se dejó fuera de aquella rama a propósito: es
-  preexistente y afecta a cuatro variables, no solo a la que se estaba
-  agregando. Merece su propia rama.
+**Tampoco queda trabajo comprometido.** Lo último acordado era el filtro por
+colonia, y ya está abajo. Lo que sigue lo decide el uso del dashboard, no una
+lista pendiente.
+
+### Filtro por colonia: hecho
+
+Implementado el 2026-08-23, en `src/rtgam/colonias.py`, `scripts/06_colonias.py`
+y el multiselect del dashboard. Diseñado el 2026-08-15; los números medidos
+entonces salieron idénticos al correrlo.
+
+**Qué es y qué no es.** Un **filtro de vista**: eliges colonias y el mapa
+esconde el resto. Los scores **no** se recalculan, y tampoco el `rank` ni la
+escala de color, que se fijan sobre los 724 hexágonos antes de filtrar. Alcance
+y resolución son ejes distintos, y esto solo toca el primero — la rejilla se
+queda en H3 res 9.
+
+Se descartó a propósito re-normalizar dentro del subconjunto. `log1p_minmax`
+corre sobre las filas que le des, así que filtrar antes de normalizar estira
+cada variable a 0-1 dentro de las colonias elegidas: re-ordena, y si el
+subconjunto tiene `competencia` casi uniforme, amplifica ruido al rango
+completo. Filtrando después, el score sigue significando "contra toda GAM" y el
+rank 219 sigue siendo 219.
+
+**La trampa que se evitó: no filtrar las fuentes, solo los candidatos.** Una
+cafetería a 300 m cruzando la calle compite igual aunque esté en otra colonia.
+Filtrar DENUE u OSM por colonia reproduciría el bug del borde que ya está
+documentado —76 de 724 hexágonos, el peor subestimado 7.5×— y ahí pegaría más
+fuerte: los bordes de colonia suman mucho más perímetro que el de la alcaldía.
+
+**Fuente.** `coloniascdmx` del portal de datos de la CDMX, Colonias del IECM
+2019. GeoJSON de 6 MB, CRS84, sin llave, cacheado en
+`data/raw/colonias_cdmx.geojson`:
+
+```
+https://datos.cdmx.gob.mx/dataset/04a1900a-0c2f-41ed-94dc-3d2d5bad4065/resource/8070ee81-9111-437e-a3dd-0c3cc6dce9f4/download/colonias-cdmx-.json
+```
+
+1,814 colonias en la CDMX; `NOMDT` trae la alcaldía en mayúsculas sin acentos
+(`GUSTAVO A. MADERO`), `NOMUT` el nombre y `CVEUT` la clave. En GAM no hay
+claves ni nombres repetidos, y 4 de las 232 colonias son MultiPolygon. Ojo con
+el aviso de `boundary.py`: las URLs de este portal cambian entre versiones, así
+que si esa muere hay que volver a buscarla por la API CKAN
+(`/api/3/action/package_show?id=coloniascdmx`). OSM quedó descartada por
+medición: 15 polígonos contra 430 nodos `place=neighbourhood` en el bbox de
+GAM — las colonias de la CDMX están mapeadas como puntos.
+
+**Lo que imprime el script, medido:**
+
+- **12 hexágonos (1.7%) no caen en ninguna colonia.** Entran al selector como
+  `(sin colonia)`; no se tiran en silencio.
+- **194 colonias tienen al menos un hexágono; 38 no tienen ninguno.** Mediana
+  de 3 hexágonos por colonia, y 50 con exactamente uno.
+- Las 38 vacías son las diminutas —área mediana 0.041 km² contra 0.105 de una
+  celda res 9, la mayor 0.145, y entre todas 1.8 km²— y **no se listan**: un
+  selector que ofrece una colonia y devuelve un mapa vacío es peor que uno que
+  no la ofrece.
+
+`hex_colonias.parquet` (`hex_id`, `cve`, `colonia`) es archivo aparte a
+propósito: no es columna de `gam_hexes.parquet` ni entra a `SOURCE_FILES`,
+porque no es variable del score y ahí adentro `99_score.py` intentaría
+normalizar una etiqueta. Lo lee solo el dashboard, que sin ese archivo funciona
+igual y lo dice en la barra lateral.
+
+**Lo que este filtro no resuelve.** Con 3 hexágonos por colonia mediana sirve
+para "estas cinco colonias" y se queda corto para "dentro de esta colonia, cuál
+esquina". Bajar a res 10 daría más alfileres, no más conocimiento: el piso del
+AGEB y el tau de 300 m no se mueven, así que los hijos heredarían valores casi
+idénticos al del hexágono padre. Esa es una decisión de campo, no de dato.
 
 ## Dónde los números NO son confiables
 
@@ -172,7 +237,16 @@ casos la implementación estaba bien; lo que faltaba era el test que la anclara.
 
 Por eso las revisiones de este repo se hacen **mutando el código real** y
 confirmando que la suite se pone roja, no leyendo el diff. Leer no cazó ninguno
-de los ocho; mutar los cazó todos.
+de los nueve; mutar los cazó todos.
+
+**El `.pyc` viejo puede fingir que una mutación sobrevivió.** Python invalida
+el bytecode comparando el mtime del fuente **en segundos enteros**, así que dos
+ediciones dentro del mismo segundo —mutar y restaurar en el mismo comando, que
+es justo como se revisan estas ramas— pueden hacer que corra el código anterior.
+Ya pasó en la rama de colonias: una mutación salió "sobrevivida" con la suite en
+verde y era bytecode rancio. Corre las mutaciones con `PYTHONDONTWRITEBYTECODE=1`.
+Y ojo con el error simétrico, peor: una restauración que parece dejar la suite en
+rojo hace creer que el código bueno está roto.
 
 **pyarrow está fijado en `<22` y no es capricho.** La 25.0.0 revienta el
 dashboard con SIGSEGV dentro del hilo de scripts de Streamlit, de forma
@@ -212,6 +286,9 @@ un tercer paso ya con las dos cachés en disco.
 - Cada fuente es dueña exclusiva de sus columnas. Agregar una es un módulo nuevo
   en `src/rtgam/sources/`, un script numerado y una línea en `SOURCE_FILES`. Se
   verificó con DENUE: entró sin tocar una sola línea de código existente.
+- Una etiqueta no es una variable. `hex_colonias.parquet` tiene módulo y script
+  numerado como una fuente, pero **no** entra a `SOURCE_FILES`: `99_score.py`
+  intentaría normalizar un nombre de colonia. Lo lee solo el dashboard.
 - Validar **antes** de escribir caché, nunca al revés. Se corrigió cuatro veces
   por no hacerlo. La comprobación vive en `src/rtgam/overpass.py`, fuera de las
   fuentes, precisamente porque tenerla en una sola dejó a la otra arrastrando la

@@ -33,6 +33,7 @@ uv run python scripts/02_transporte.py
 uv run python scripts/03_denue.py
 uv run python scripts/04_osm.py
 uv run python scripts/05_censo.py
+uv run python scripts/06_colonias.py
 uv run python scripts/99_score.py
 uv run streamlit run app/dashboard.py
 ```
@@ -47,6 +48,30 @@ Tras la primera corrida de `03`, revisar `data/interim/competencia_denue.csv`.
 La lista de cafeterías se arma con un patrón de nombres sobre el código SCIAN
 722515, que es criterio editorial y no un hecho: ese código mezcla cafeterías
 con paleterías y puestos de antojitos.
+
+## Filtro por colonia
+
+`06_colonias.py` es opcional y no alimenta el score: baja las colonias del
+IECM 2019 del portal de la CDMX y escribe `data/processed/hex_colonias.parquet`
+con la colonia de cada hexágono. Con ese archivo presente, el dashboard suma un
+multiselect que **esconde** hexágonos; sin él, el dashboard funciona igual y lo
+dice en la barra lateral.
+
+Es un filtro de vista: los scores, la escala de color y el `rank` se calculan
+siempre contra los 724 hexágonos de toda la alcaldía, así que el puesto 219
+sigue siendo el 219 con cualquier filtro puesto. Re-normalizar dentro del
+subconjunto se descartó a propósito: estiraría cada variable a 0-1 dentro de
+las colonias elegidas, lo que re-ordena los hexágonos y amplifica ruido al
+rango completo.
+
+Las colonias no filtran ninguna fuente, solo los candidatos. Una cafetería a
+300 m cruzando la calle compite igual aunque esté en otra colonia.
+
+Granularidad: la colonia mediana de GAM son 3 hexágonos, así que el filtro
+sirve para "estas cinco colonias" y se queda corto para "en cuál esquina de
+esta colonia". 194 de las 232 colonias tienen al menos un hexágono; las 38
+restantes son más chicas que una celda res 9 (0.105 km²) y no se listan. Los
+12 hexágonos que no caen en ninguna colonia aparecen como `(sin colonia)`.
 
 ## Qué significa el score
 
