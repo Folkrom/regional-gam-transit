@@ -23,7 +23,10 @@ del portal de datos abiertos de la CDMX en `https://datos.cdmx.gob.mx`
 fecha, anio, mes, linea, estacion, afluencia
 ```
 
-Todo lo demás se descarga solo.
+Todo lo demás se descarga solo. `03_denue.py` baja 126 MB en tres zips —CDMX y
+las dos mitades del Estado de México— y deja 700 MB de CSV extraídos en
+`data/raw/`. Las dos mitades de Edomex hacen falta las dos: el corte entre ellas
+no es por municipio.
 
 ## Orden de ejecución
 
@@ -124,14 +127,12 @@ del dashboard.
   simple del de sus vecinos inmediatos. Ahí la columna describe al
   vecindario, no a quien ocupa el polígono —que en cinco de los seis casos
   no es nadie—. Su `densidad_pob` sí es la real, cero incluido.
-- DENUE se filtra por alcaldía, no por geometría, así que los negocios justo
-  afuera del límite de GAM no cuentan aunque estén a menos de 800 m de un
-  hexágono. Medido: 76 de los 724 hexágonos pierden más de un atractor y 33
-  pierden más del 20% de su valor; el peor caso queda subestimado 7.5 veces.
-  Afecta sobre todo el borde sur, contra Cuauhtémoc y Venustiano Carranza.
-  Arreglarlo del todo no es posible con este archivo, que solo cubre la CDMX:
-  los bordes norte y oriente, contra Tlalnepantla, Ecatepec y Nezahualcóyotl,
-  seguirían ciegos.
+- ~~DENUE se filtra por alcaldía~~ **Arreglado el 2026-08-23.** DENUE ya se
+  recorta por distancia a la rejilla y no por municipio, con los archivos de
+  CDMX y Estado de México. El borde ya no está ciego: entran 29,026
+  establecimientos de fuera de GAM, sobre todo de Tlalnepantla (9,000),
+  Venustiano Carranza (6,054), Nezahualcóyotl (4,631), Azcapotzalco (3,332),
+  Cuauhtémoc (3,284) y Ecatepec (2,725).
 - Los polígonos grandes de OSM van por su centroide, así que el Bosque de San
   Juan de Aragón (~1.3 km de largo) sale subestimado. Medido sobre la corrida
   vigente (`data/raw/osm_atractores_geom.json`): 56 de los 1,218 atractores
